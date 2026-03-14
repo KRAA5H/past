@@ -56,23 +56,27 @@ SYSTEM_PROMPT = (
     "- props: maximum 6. shape must be one of: box, sphere, cylinder. No other values.\n"
     "- characters: maximum 3.\n"
     "- Every prop and character must have an exact x/y/z position — no relative positions.\n"
-    "- Room is always max 20x20 metres, height max 5 m. Y=0 is floor level.\n"
+    "- room must be a JSON object with exactly these keys: "
+    "width (float, 0–20), depth (float, 0–20), height (float, 0–5), "
+    "fog (object with keys color, near, far), ambient_color (hex string). "
+    "Do NOT use keys named 'size', 'dimensions', 'colour', or any other variant.\n"
     "- Characters always stand at y=0. Character body: ~0.4 m wide, ~1.8 m tall.\n"
     "- Interactable props must include interact_type (read or inspect), "
     "interact_text (max 6 words), and interact_content (max 50 words).\n"
-    "- Every character must have: name, a one-sentence role description, "
+    "- Every character must have: id (snake_case string — NOT 'character_id'), "
+    "name, a one-sentence role description, "
     "head_portrait_prompt (max 30 words, portrait style, white background), "
-    "and persona_summary (max 60 words, written as direct second-person instructions "
-    "for a voice agent system prompt).\n"
-    "- lights: maximum 3. Each must specify type (point, spot, or ambient), "
-    "position, hex colour, and intensity (0.0-2.0).\n"
+    "persona_summary (max 60 words, written as direct second-person instructions "
+    "for a voice agent system prompt), and interact_text (required on every "
+    "character, max 6 words, regardless of interactable).\n"
+    "- lights: maximum 3. Each must specify type ('point', 'spot', or 'ambient'), "
+    "position, color (hex string — use 'color', NOT 'colour'), "
+    "and intensity (0.0–2.0).\n"
     "- ambient_sounds: maximum 2. Only use values from: "
     "radio_chatter, console_beeps, crowd_murmur, wind, fire_crackling, "
     "church_bells, horse_hooves, typewriter_clatter, machinery_hum, silence.\n"
     "- intro_narration: maximum 2 sentences, spoken by a neutral narrator, "
     "sets the scene without revealing outcomes.\n"
-    "- room must include fog (color as hex, near distance, far distance) "
-    "and ambient_color as a hex string.\n"
     "- All x and z positions: within [-10, 10]. All y positions: within [0, 5].\n"
     "- camera_start.y must be exactly 1.6.\n\n"
     "QUALITY RULES:\n"
@@ -80,8 +84,10 @@ SYSTEM_PROMPT = (
     "- Characters must be real historical figures if the event is documented, "
     "or clearly fictional archetypes otherwise. Never invent names for real undocumented figures.\n"
     "- Character positions must be spatially logical.\n"
-    "- Prop dimensions must be realistic in metres "
-    "(desk ~1.5x0.8x0.75 m, person ~0.4 m wide, 1.8 m tall).\n"
+    "- props[].dimensions must be a JSON array of exactly 3 floats [width, height, depth] "
+    "(e.g. [1.5, 0.8, 0.75]) — NOT an object or named keys. "
+    "Dimensions must be realistic in metres "
+    "(desk ~[1.5, 0.75, 0.8], chair ~[0.5, 0.9, 0.5]).\n"
     "- Exactly one character must have primary=true "
     "(the one the user approaches first for voice interaction).\n"
     "- dramatic_moment must be at most 20 words.\n"
@@ -361,8 +367,115 @@ def build_scene_prompt(user_input: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+def _normalize_scene_plan(raw: dict) -> dict:
+    """
+    Silently fix the structural variants Gemini commonly produces before
+    Pydantic validation runs.  Handles:
+
+    - room with flat/misnamed size keys  → {width, depth, height}
+    - fog.colour                         → fog.color
+    - lights[].colour                    → lights[].color
+    - props[].dimensions as a dict       → [width, height, depth] list
+    - characters[].character_id          → characters[].id
+    """
+    data = dict(raw)
+
+    # --- room ---
+    room = data.get("room")
+    if isinstance(room, dict):
+        for size_key in ("size", "dimensions"):
+            val = room.get(size_key)
+            if isinstance(val, list) and len(val) == 3:
+                room.setdefault("width", val[0])
+                room.setdefault("depth", val[1])
+                room.setdefault("height", val[2])
+                del room[size_key]
+        fog = room.get("fog")
+        if isinstance(fog, dict) and "colour" in fog:
+            fog["color"] = fog.pop("colour")
+
+    # --- lights: colour → color ---
+    for light in data.get("lights") or []:
+        if isinstance(light, dict) and "colour" in light:
+            light["color"] = light.pop("colour")
+
+    # --- props: dimensions dict → [w, h, d] list ---
+    for prop in data.get("props") or []:
+        if not isinstance(prop, dict):
+            continue
+        dims = prop.get("dimensions")
+        if isinstance(dims, dict):
+            prop["dimensions"] = [
+                float(dims.get("width", dims.get("x", dims.get("w", 1.0)))),
+                float(dims.get("height", dims.get("y", dims.get("h", 1.0)))),
+                float(dims.get("depth", dims.get("z", dims.get("d", 1.0)))),
+            ]
+
+    # --- characters: character_id → id ---
+    for char in data.get("characters") or []:
+        if isinstance(char, dict) and "id" not in char and "character_id" in char:
+            char["id"] = char.pop("character_id")
+
+    return data
+
+
+def _humanize_errors(errors: list[str]) -> str:
+    """
+    Convert Pydantic error strings (e.g. "props.0.dimensions: Input should be a valid list")
+    into model-legible, actionable instructions.  Each logical issue is emitted at most once.
+    """
+    # Map location fragment  →  actionable instruction
+    _FIXES: list[tuple[str, str]] = [
+        (
+            "dimensions",
+            "props[].dimensions must be a JSON array of 3 floats [width, height, depth], "
+            "e.g. [1.5, 0.8, 0.75] — NOT an object",
+        ),
+        (
+            "room.width",
+            "room must have keys: width (float), depth (float), height (float), "
+            "fog (object with color/near/far), ambient_color (hex) — "
+            "do NOT use 'size', 'dimensions', or 'colour'",
+        ),
+        (
+            "room",
+            "room must be a JSON object with keys width, depth, height, fog, ambient_color",
+        ),
+        (
+            "lights",
+            "lights[].color must be a hex string (use 'color', NOT 'colour')",
+        ),
+        (
+            "characters",
+            "every character needs: id (snake_case, NOT 'character_id'), "
+            "name, role, position, head_portrait_prompt, persona_summary, "
+            "interact_text (required on every character), primary (bool)",
+        ),
+        (
+            "camera_start.y",
+            "camera_start.y must be exactly 1.6",
+        ),
+    ]
+
+    seen: set[str] = set()
+    messages: list[str] = []
+    for err in errors:
+        loc = err.split(":")[0]
+        matched = False
+        for fragment, fix in _FIXES:
+            if fragment in loc and fix not in seen:
+                messages.append(fix)
+                seen.add(fix)
+                matched = True
+                break
+        if not matched and err not in seen:
+            messages.append(err)
+            seen.add(err)
+    return "; ".join(messages)
+
+
 class ScenePlanner:
-    def __init__(self, api_key: str, model: str = "gemini-3.1-flash-lite-preview") -> None:
+    def __init__(self, api_key: str, model: str = "gemini-3-flash-preview") -> None:
         self._client = genai.Client(api_key=api_key)
         self._model = model
 
@@ -425,17 +538,19 @@ class ScenePlanner:
 
         # First attempt
         raw = self._call_gemini_json(prompt)
+        raw = _normalize_scene_plan(raw)
         errors = ScenePlan.validate_data(raw)
 
         if errors:
-            error_summary = "; ".join(errors[:10])
+            error_summary = _humanize_errors(errors)
             logger.warning("ScenePlan validation failed on first attempt: %s", error_summary)
             retry_prompt = (
                 prompt
-                + f"\n\nYour previous response had these errors: {error_summary}. "
-                "Fix all errors and return a corrected ScenePlan JSON."
+                + f"\n\nYour previous response had these errors:\n{error_summary}\n"
+                "Fix every error listed above and return a corrected ScenePlan JSON."
             )
             raw = self._call_gemini_json(retry_prompt)
+            raw = _normalize_scene_plan(raw)
             errors = ScenePlan.validate_data(raw)
 
         if errors:

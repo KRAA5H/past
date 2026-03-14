@@ -34,7 +34,7 @@ class TestScenePlannerInit:
         from scene_planner import ScenePlanner
 
         planner = ScenePlanner(api_key="key")
-        assert planner._model == "gemini-3.1-flash-lite-preview"
+        assert planner._model == "gemini-3-flash-preview"
 
     def test_custom_model(self, mock_genai_client):
         from scene_planner import ScenePlanner
