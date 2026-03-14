@@ -1,16 +1,22 @@
 """
-scene_planner.py — builds / updates a SceneState using the Gemini text model
-with function calling.
+scene_planner.py — builds / updates a SceneState or ScenePlan using Gemini.
+
+Legacy interface  : ScenePlanner.plan_scene()          → SceneState  (function calling)
+New interface     : ScenePlanner.generate_scene_plan() → ScenePlan   (JSON mode + validation)
 """
 from __future__ import annotations
 
 import json
 import logging
+import uuid
+from typing import Any
 
 from google import genai
 from google.genai import types as genai_types
+from pydantic import ValidationError
 
 from models import (
+    # Legacy models
     NPCAction,
     NPCBase,
     NPCMood,
@@ -19,12 +25,72 @@ from models import (
     SceneObjectBase,
     SceneState,
     SetSceneDescriptionArgs,
+    # ScenePlan models
+    CameraStart,
+    Character,
+    Fog,
+    Light,
+    LightType,
+    Material,
+    Position3D,
+    Prop,
+    Room,
+    ScenePlan,
+    ShapeType,
+    SoundID,
 )
 
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# Tool definitions — sent to Gemini as function declarations
+# System prompt — enforces constraints on Gemini's ScenePlan output
+# ---------------------------------------------------------------------------
+
+SYSTEM_PROMPT = (
+    "You are Chronos, a scene generation AI for a 3D historical immersion application "
+    "built on React Three Fiber. "
+    "OUTPUT: Respond ONLY with a single valid JSON object matching the ScenePlan schema. "
+    "No markdown fences, no prose, no commentary outside the JSON.\n\n"
+    "HARD CONSTRAINTS:\n"
+    "- scene: single room or bounded outdoor area only. No open worlds.\n"
+    "- props: maximum 6. shape must be one of: box, sphere, cylinder. No other values.\n"
+    "- characters: maximum 3.\n"
+    "- Every prop and character must have an exact x/y/z position — no relative positions.\n"
+    "- Room is always max 20x20 metres, height max 5 m. Y=0 is floor level.\n"
+    "- Characters always stand at y=0. Character body: ~0.4 m wide, ~1.8 m tall.\n"
+    "- Interactable props must include interact_type (read or inspect), "
+    "interact_text (max 6 words), and interact_content (max 50 words).\n"
+    "- Every character must have: name, a one-sentence role description, "
+    "head_portrait_prompt (max 30 words, portrait style, white background), "
+    "and persona_summary (max 60 words, written as direct second-person instructions "
+    "for a voice agent system prompt).\n"
+    "- lights: maximum 3. Each must specify type (point, spot, or ambient), "
+    "position, hex colour, and intensity (0.0-2.0).\n"
+    "- ambient_sounds: maximum 2. Only use values from: "
+    "radio_chatter, console_beeps, crowd_murmur, wind, fire_crackling, "
+    "church_bells, horse_hooves, typewriter_clatter, machinery_hum, silence.\n"
+    "- intro_narration: maximum 2 sentences, spoken by a neutral narrator, "
+    "sets the scene without revealing outcomes.\n"
+    "- room must include fog (color as hex, near distance, far distance) "
+    "and ambient_color as a hex string.\n"
+    "- All x and z positions: within [-10, 10]. All y positions: within [0, 5].\n"
+    "- camera_start.y must be exactly 1.6.\n\n"
+    "QUALITY RULES:\n"
+    "- Props must be historically plausible. No anachronistic objects.\n"
+    "- Characters must be real historical figures if the event is documented, "
+    "or clearly fictional archetypes otherwise. Never invent names for real undocumented figures.\n"
+    "- Character positions must be spatially logical.\n"
+    "- Prop dimensions must be realistic in metres "
+    "(desk ~1.5x0.8x0.75 m, person ~0.4 m wide, 1.8 m tall).\n"
+    "- Exactly one character must have primary=true "
+    "(the one the user approaches first for voice interaction).\n"
+    "- dramatic_moment must be at most 20 words.\n"
+    "- The scene must have clear dramatic tension — something is about to happen, "
+    "has just happened, or is happening now."
+)
+
+# ---------------------------------------------------------------------------
+# Legacy tool definitions — kept for plan_scene() backward compatibility
 # ---------------------------------------------------------------------------
 
 TOOLS = genai_types.Tool(
@@ -134,14 +200,160 @@ TOOLS = genai_types.Tool(
     ]
 )
 
-SYSTEM_PROMPT = (
-    "You are Chronos, an AI that recreates historical scenes in 3-D. "
-    "When given a user description of a past event or place, you MUST call the "
-    "provided functions to populate the scene. Use place_npc for each person "
-    "and place_object for significant items. Always call set_scene_description "
-    "first. Be historically accurate and vivid. "
-    "Return no plain-text content — only function calls."
-)
+
+# ---------------------------------------------------------------------------
+# Apollo 11 fallback scene
+# ---------------------------------------------------------------------------
+
+def _build_fallback_scene() -> ScenePlan:
+    """Return a hardcoded Apollo 11 Mission Control scene used when Gemini fails twice."""
+    return ScenePlan(
+        scene_id=str(uuid.uuid4()),
+        event_name="Apollo 11 Moon Landing",
+        dramatic_moment="T-5 minutes before lunar module touchdown at Tranquility Base",
+        room=Room(
+            width=15.0,
+            depth=10.0,
+            height=4.0,
+            fog=Fog(color="#0a0a14", near=8.0, far=20.0),
+            ambient_color="#1a1a3e",
+        ),
+        lights=[
+            Light(
+                type=LightType.ambient,
+                position=Position3D(x=0.0, y=3.0, z=0.0),
+                color="#ffffff",
+                intensity=0.3,
+            ),
+            Light(
+                type=LightType.point,
+                position=Position3D(x=0.0, y=3.5, z=-3.0),
+                color="#4080ff",
+                intensity=1.2,
+            ),
+            Light(
+                type=LightType.point,
+                position=Position3D(x=5.0, y=2.0, z=0.0),
+                color="#ffcc44",
+                intensity=0.8,
+            ),
+        ],
+        props=[
+            Prop(
+                id="console_main",
+                shape=ShapeType.box,
+                dimensions=[2.0, 0.9, 0.8],
+                position=Position3D(x=0.0, y=0.45, z=-3.0),
+                material=Material(color="#1a1a2e", roughness=0.8),
+                interactable=True,
+                interact_type="inspect",
+                interact_text="Examine mission console",
+                interact_content=(
+                    "Banks of switches and dials glow green. "
+                    "A voice crackles: 'Eagle, you are GO for powered descent.' "
+                    "Every engineer in the room holds their breath."
+                ),
+            ),
+            Prop(
+                id="headset_rack",
+                shape=ShapeType.box,
+                dimensions=[0.4, 0.3, 0.2],
+                position=Position3D(x=3.0, y=0.9, z=-2.5),
+                material=Material(color="#222222", roughness=0.6),
+            ),
+            Prop(
+                id="coffee_cup",
+                shape=ShapeType.cylinder,
+                dimensions=[0.05, 0.05, 0.1],
+                position=Position3D(x=0.8, y=0.95, z=-2.8),
+                material=Material(color="#8b4513", roughness=0.9),
+            ),
+        ],
+        characters=[
+            Character(
+                id="gene_kranz",
+                name="Gene Kranz",
+                role="NASA Flight Director leading the Apollo 11 lunar landing.",
+                position=Position3D(x=0.0, y=0.0, z=-1.0),
+                head_portrait_prompt=(
+                    "Portrait of Gene Kranz, middle-aged American man, short brown hair, "
+                    "iconic white vest, determined expression, white background, photorealistic."
+                ),
+                persona_summary=(
+                    "You are Gene Kranz, NASA Flight Director for Apollo 11. "
+                    "Speak with calm authority. "
+                    "Reference mission data precisely. "
+                    "Address crew by callsign. "
+                    "You are focused and resolute."
+                ),
+                interact_text="Speak with Flight Director",
+                primary=True,
+            ),
+            Character(
+                id="capcom_duke",
+                name="Charlie Duke",
+                role="CAPCOM relaying communications between Mission Control and the crew.",
+                position=Position3D(x=3.0, y=0.0, z=-1.5),
+                head_portrait_prompt=(
+                    "Portrait of Charlie Duke, young American man, short dark hair, "
+                    "NASA headset, focused expression, white background, photorealistic."
+                ),
+                persona_summary=(
+                    "You are Charlie Duke, CAPCOM for Apollo 11. "
+                    "Relay messages to Armstrong and Aldrin with precision. "
+                    "Keep responses brief and technical. "
+                    "Remain calm under pressure."
+                ),
+                interact_text="Ask CAPCOM for status",
+                primary=False,
+            ),
+        ],
+        ambient_sounds=[SoundID.console_beeps, SoundID.radio_chatter],
+        intro_narration=(
+            "The year is 1969 and humanity is four minutes from touching the Moon. "
+            "In this room, quiet engineers hold the fate of three astronauts in their hands."
+        ),
+        camera_start=CameraStart(x=0.0, y=1.6, z=2.0),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Prompt builder — Part 2
+# ---------------------------------------------------------------------------
+
+def build_scene_prompt(user_input: str) -> str:
+    """
+    Construct a rich, constrained prompt from the user's raw input.
+
+    Infers missing context (event name, date, location, role, dramatic moment)
+    and explicitly instructs Gemini to include the most significant historical
+    figure and to use only primitive shapes.
+    """
+    return (
+        f"Generate a fully detailed 3D historical scene as a ScenePlan JSON object.\n\n"
+        f"USER INPUT: {user_input}\n\n"
+        "You MUST include ALL of the following in the scene plan:\n"
+        "1. EVENT NAME AND DATE: The specific historical event and its date "
+        "(or approximate era if the date is unknown). "
+        "Infer from context if not stated "
+        "(e.g. 'Apollo 11' -> Apollo 11 Moon Landing, 20 July 1969; "
+        "'WW1 trench' -> Somme Offensive, October 1916).\n"
+        "2. EXACT LOCATION: The precise physical location within the event "
+        "(not just the broad event — e.g. not 'WW1' but "
+        "'a dugout trench on the Somme, October 1916, the night before the offensive').\n"
+        "3. USER ROLE: The user's role in the scene "
+        "(observer, participant, or a specific job title).\n"
+        "4. DRAMATIC MOMENT: A precise temporal description of what is happening "
+        "(e.g. 'T-5 minutes before lunar touchdown', "
+        "'the moment the armistice is signed', 'mid-battle at dawn'). "
+        "Maximum 20 words.\n"
+        "5. PRIMARY CHARACTER: Include the most historically significant person present "
+        "who the user can interact with, marked as primary=true.\n"
+        "6. PRIMITIVES ONLY: The scene must be fully self-contained and renderable "
+        "using only box, sphere, and cylinder primitives.\n\n"
+        "Return ONLY a valid JSON object conforming to the ScenePlan schema. "
+        "No markdown fences, no prose outside the JSON."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -154,16 +366,21 @@ class ScenePlanner:
         self._client = genai.Client(api_key=api_key)
         self._model = model
 
+    # ------------------------------------------------------------------
+    # Legacy interface — backward compatible, used by main.py /api/scene
+    # ------------------------------------------------------------------
+
     def plan_scene(self, user_prompt: str, session_id: str) -> SceneState:
         """
         Send *user_prompt* to Gemini with function-calling tools and return a
         fully populated SceneState.
         """
+        enriched_prompt = build_scene_prompt(user_prompt)
         state = SceneState(session_id=session_id)
         messages: list[genai_types.Content] = [
             genai_types.Content(
                 role="user",
-                parts=[genai_types.Part(text=user_prompt)],
+                parts=[genai_types.Part(text=enriched_prompt)],
             )
         ]
 
@@ -192,8 +409,68 @@ class ScenePlanner:
         return state
 
     # ------------------------------------------------------------------
+    # New interface — returns validated ScenePlan with retry & fallback
+    # ------------------------------------------------------------------
+
+    def generate_scene_plan(self, user_input: str) -> ScenePlan:
+        """
+        Generate a fully validated ScenePlan from *user_input*.
+
+        1. Calls Gemini in JSON mode with the enriched prompt.
+        2. Validates the response against ScenePlan.
+        3. On failure, retries once with the validation errors appended.
+        4. On second failure, returns the hardcoded Apollo 11 fallback scene.
+        """
+        prompt = build_scene_prompt(user_input)
+
+        # First attempt
+        raw = self._call_gemini_json(prompt)
+        errors = ScenePlan.validate_data(raw)
+
+        if errors:
+            error_summary = "; ".join(errors[:10])
+            logger.warning("ScenePlan validation failed on first attempt: %s", error_summary)
+            retry_prompt = (
+                prompt
+                + f"\n\nYour previous response had these errors: {error_summary}. "
+                "Fix all errors and return a corrected ScenePlan JSON."
+            )
+            raw = self._call_gemini_json(retry_prompt)
+            errors = ScenePlan.validate_data(raw)
+
+        if errors:
+            logger.error(
+                "ScenePlan validation failed after retry. Using Apollo 11 fallback. Errors: %s",
+                errors,
+            )
+            return _build_fallback_scene()
+
+        return ScenePlan.model_validate(raw)
+
+    # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
+
+    def _call_gemini_json(self, prompt: str) -> dict:
+        """Send prompt to Gemini in JSON mode and return the parsed response dict."""
+        response = self._client.models.generate_content(
+            model=self._model,
+            contents=[
+                genai_types.Content(
+                    role="user",
+                    parts=[genai_types.Part(text=prompt)],
+                )
+            ],
+            config=genai_types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                response_mime_type="application/json",
+            ),
+        )
+        try:
+            return json.loads(response.text)
+        except (json.JSONDecodeError, AttributeError) as exc:
+            logger.warning("Failed to parse Gemini JSON response: %s", exc)
+            return {}
 
     def _apply_function_call(
         self, state: SceneState, name: str, args: dict[str, Any]
@@ -206,7 +483,6 @@ class ScenePlanner:
 
         elif name == "place_npc":
             parsed = PlaceNPCArgs(**args)
-            # Update existing NPC or append new one
             for npc in state.npcs:
                 if npc.npc_id == parsed.npc_id:
                     for field, value in parsed.model_dump().items():
