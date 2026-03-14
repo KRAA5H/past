@@ -1,8 +1,11 @@
 /**
- * Scene.tsx — Three.js / R3F room with dynamically placed NPCs and objects.
+ * Scene.tsx — Three.js / R3F room rendering a ScenePlan.
  *
- * NPCs are represented as simple capsule meshes until real GLTF assets are
- * available.  Objects are rendered as boxes with a label.
+ * Characters are rendered as capsule meshes until real GLTF assets are
+ * available. Props are rendered as box/sphere/cylinder primitives using the
+ * shape, dimensions, and material from the ScenePlan.
+ *
+ * When `interactive` is true the primary character shows an [E] prompt.
  */
 import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
@@ -13,48 +16,43 @@ import {
   Html,
 } from '@react-three/drei'
 import * as THREE from 'three'
-import type { SceneState, NPCBase, SceneObjectBase } from './useChronos'
+import type { ScenePlan, Character, Prop } from './useChronos'
 
 // ---------------------------------------------------------------------------
-// NPC mesh
+// Character mesh
 // ---------------------------------------------------------------------------
 
-interface NPCProps {
-  npc: NPCBase
+interface CharacterMeshProps {
+  character: Character
+  interactive: boolean
+  onInteract?: (id: string) => void
 }
 
-function NPCMesh({ npc }: NPCProps) {
+function CharacterMesh({ character, interactive, onInteract }: CharacterMeshProps) {
   const meshRef = useRef<THREE.Mesh>(null)
 
-  // Simple idle bob animation
+  // Simple idle bob
   useFrame(({ clock }) => {
-    if (meshRef.current && npc.action === 'idle') {
+    if (meshRef.current) {
       meshRef.current.position.y =
-        npc.position[1] + Math.sin(clock.getElapsedTime() * 1.5) * 0.04
+        character.position.y + Math.sin(clock.getElapsedTime() * 1.5) * 0.04
     }
   })
 
-  const moodColor: Record<string, string> = {
-    neutral: '#94a3b8',
-    happy: '#fbbf24',
-    sad: '#60a5fa',
-    angry: '#f87171',
-    fearful: '#a78bfa',
-    surprised: '#34d399',
-  }
-
-  const color = moodColor[npc.mood] ?? '#94a3b8'
+  const bodyColor = character.primary ? '#818cf8' : '#94a3b8'
 
   return (
-    <group position={npc.position as [number, number, number]}>
+    <group
+      position={[character.position.x, character.position.y, character.position.z]}
+    >
       {/* Body */}
       <mesh ref={meshRef}>
         <capsuleGeometry args={[0.25, 0.8, 8, 16]} />
-        <meshStandardMaterial color={color} />
+        <meshStandardMaterial color={bodyColor} />
       </mesh>
       {/* Name label */}
       <Text
-        position={[0, 1.1, 0]}
+        position={[0, 1.3, 0]}
         fontSize={0.18}
         color="#ffffff"
         anchorX="center"
@@ -62,24 +60,28 @@ function NPCMesh({ npc }: NPCProps) {
         outlineWidth={0.02}
         outlineColor="#000000"
       >
-        {npc.name}
+        {character.name}
       </Text>
-      {/* Dialogue bubble */}
-      {npc.dialogue && (
-        <Html position={[0, 1.5, 0]} center distanceFactor={6}>
+      {/* Interaction prompt — shown only when the scene is explorable */}
+      {interactive && (
+        <Html position={[0, 1.75, 0]} center distanceFactor={6}>
           <div
+            onClick={() => onInteract?.(character.id)}
             style={{
-              background: 'rgba(255,255,255,0.9)',
-              color: '#1e293b',
-              padding: '4px 8px',
-              borderRadius: 8,
+              background: character.primary
+                ? 'rgba(79,70,229,0.9)'
+                : 'rgba(0,0,0,0.7)',
+              color: '#fff',
+              padding: '3px 8px',
+              borderRadius: 6,
               fontSize: 11,
-              maxWidth: 160,
-              textAlign: 'center',
-              pointerEvents: 'none',
+              whiteSpace: 'nowrap',
+              cursor: 'pointer',
+              userSelect: 'none',
+              border: '1px solid rgba(255,255,255,0.25)',
             }}
           >
-            {npc.dialogue}
+            {character.primary ? '[E] ' : ''}{character.interact_text}
           </div>
         </Html>
       )}
@@ -88,33 +90,48 @@ function NPCMesh({ npc }: NPCProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Scene object mesh
+// Prop mesh (box / sphere / cylinder primitives)
 // ---------------------------------------------------------------------------
 
-interface SceneObjectProps {
-  obj: SceneObjectBase
+interface PropMeshProps {
+  prop: Prop
 }
 
-function SceneObjectMesh({ obj }: SceneObjectProps) {
+function PropMesh({ prop }: PropMeshProps) {
+  const [w, h, d] = prop.dimensions
+
+  const geometry =
+    prop.shape === 'sphere' ? (
+      <sphereGeometry args={[w / 2, 16, 16]} />
+    ) : prop.shape === 'cylinder' ? (
+      <cylinderGeometry args={[w / 2, w / 2, h, 16]} />
+    ) : (
+      <boxGeometry args={[w, h, d]} />
+    )
+
   return (
     <group
-      position={obj.position as [number, number, number]}
-      rotation={obj.rotation as [number, number, number]}
-      scale={obj.scale as [number, number, number]}
+      position={[prop.position.x, prop.position.y, prop.position.z]}
     >
       <mesh>
-        <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color="#78716c" wireframe />
+        {geometry}
+        <meshStandardMaterial
+          color={prop.material.color}
+          roughness={prop.material.roughness}
+          emissive={prop.material.emissive_color ?? '#000000'}
+        />
       </mesh>
-      <Text
-        position={[0, 0.7, 0]}
-        fontSize={0.15}
-        color="#e2e8f0"
-        anchorX="center"
-        anchorY="middle"
-      >
-        {obj.asset}
-      </Text>
+      {prop.interactable && prop.interact_text && (
+        <Text
+          position={[0, h / 2 + 0.2, 0]}
+          fontSize={0.13}
+          color="#e2e8f0"
+          anchorX="center"
+          anchorY="middle"
+        >
+          {prop.interact_text}
+        </Text>
+      )}
     </group>
   )
 }
@@ -137,31 +154,60 @@ function Ground() {
 // ---------------------------------------------------------------------------
 
 interface SceneProps {
-  state: SceneState | null
+  plan: ScenePlan | null
+  onNpcInteract?: (npcId: string) => void
+  interactive?: boolean
 }
 
-export function Scene({ state }: SceneProps) {
-  const lighting = state?.lighting ?? 'day'
-
-  const envPreset: 'sunset' | 'dawn' | 'night' | 'warehouse' | 'forest' | 'apartment' | 'city' | 'studio' | 'park' | 'lobby' =
-    lighting === 'night'
-      ? 'night'
-      : lighting === 'dawn' || lighting === 'dusk'
-      ? 'dawn'
-      : 'city'
+export function Scene({ plan, onNpcInteract, interactive = false }: SceneProps) {
+  // Pick a sky environment based on the room's ambient colour darkness
+  const ambientBrightness = plan
+    ? parseInt(plan.room.ambient_color.slice(1, 3), 16)
+    : 128
+  const envPreset: 'sunset' | 'dawn' | 'night' | 'warehouse' | 'city' =
+    ambientBrightness < 40 ? 'night' : ambientBrightness < 80 ? 'dawn' : 'city'
 
   return (
     <>
-      {/* Lighting */}
-      <ambientLight intensity={lighting === 'night' ? 0.2 : 0.6} />
-      <directionalLight
-        position={[10, 20, 10]}
-        intensity={lighting === 'night' ? 0.3 : 1.2}
-        castShadow
-      />
+      {/* Scene lights from plan, or defaults */}
+      {plan ? (
+        plan.lights.map((light, i) => {
+          if (light.type === 'ambient') {
+            return (
+              <ambientLight key={i} color={light.color} intensity={light.intensity} />
+            )
+          }
+          if (light.type === 'spot') {
+            return (
+              <spotLight
+                key={i}
+                position={[light.position.x, light.position.y, light.position.z]}
+                color={light.color}
+                intensity={light.intensity}
+                castShadow
+              />
+            )
+          }
+          return (
+            <pointLight
+              key={i}
+              position={[light.position.x, light.position.y, light.position.z]}
+              color={light.color}
+              intensity={light.intensity}
+            />
+          )
+        })
+      ) : (
+        <>
+          <ambientLight intensity={0.6} />
+          <directionalLight position={[10, 20, 10]} intensity={1.2} castShadow />
+        </>
+      )}
+
+      {/* Environment */}
       <Environment preset={envPreset} background blur={0.6} />
 
-      {/* Controls */}
+      {/* Orbit controls */}
       <OrbitControls
         makeDefault
         minDistance={2}
@@ -172,18 +218,23 @@ export function Scene({ state }: SceneProps) {
       {/* Ground */}
       <Ground />
 
-      {/* NPCs */}
-      {state?.npcs.map((npc) => (
-        <NPCMesh key={npc.npc_id} npc={npc} />
+      {/* Props */}
+      {plan?.props.map((prop) => (
+        <PropMesh key={prop.id} prop={prop} />
       ))}
 
-      {/* Objects */}
-      {state?.objects.map((obj) => (
-        <SceneObjectMesh key={obj.object_id} obj={obj} />
+      {/* Characters */}
+      {plan?.characters.map((character) => (
+        <CharacterMesh
+          key={character.id}
+          character={character}
+          interactive={interactive}
+          onInteract={onNpcInteract}
+        />
       ))}
 
-      {/* Empty state hint */}
-      {!state && (
+      {/* Empty-state hint */}
+      {!plan && (
         <Text
           position={[0, 1, 0]}
           fontSize={0.4}

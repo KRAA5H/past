@@ -62,6 +62,14 @@ class TestWSMessageType:
         assert WSMessageType.text_input == "text_input"
         assert WSMessageType.scene_request == "scene_request"
 
+    def test_interaction_flow_client_types(self):
+        """Client-to-server types introduced for the full interaction flow."""
+        from models import WSMessageType
+
+        assert WSMessageType.npc_interact == "npc_interact"
+        assert WSMessageType.npc_leave == "npc_leave"
+        assert WSMessageType.scene_exit == "scene_exit"
+
     def test_server_message_types(self):
         from models import WSMessageType
 
@@ -70,6 +78,57 @@ class TestWSMessageType:
         assert WSMessageType.transcript == "transcript"
         assert WSMessageType.error == "error"
         assert WSMessageType.status == "status"
+
+    def test_interaction_flow_server_types(self):
+        """Server-to-client types introduced for the full interaction flow."""
+        from models import WSMessageType
+
+        assert WSMessageType.scene_plan_update == "scene_plan_update"
+        assert WSMessageType.cutscene_start == "cutscene_start"
+
+    def test_npc_interact_message_roundtrip(self):
+        """npc_interact message can be created and validated."""
+        from models import WSMessage, WSMessageType
+
+        msg = WSMessage(type=WSMessageType.npc_interact, payload={"npc_id": "gene_kranz"})
+        data = msg.model_dump()
+        restored = WSMessage.model_validate(data)
+        assert restored.type == WSMessageType.npc_interact
+        assert restored.payload["npc_id"] == "gene_kranz"
+
+    def test_cutscene_start_message_roundtrip(self):
+        """cutscene_start message carries intro_narration and character_name."""
+        from models import WSMessage, WSMessageType
+
+        msg = WSMessage(
+            type=WSMessageType.cutscene_start,
+            payload={
+                "intro_narration": "Humanity stands at the edge of history.",
+                "character_name": "Gene Kranz",
+            },
+        )
+        data = msg.model_dump()
+        restored = WSMessage.model_validate(data)
+        assert restored.type == WSMessageType.cutscene_start
+        assert "intro_narration" in restored.payload
+
+    def test_scene_plan_update_message(self):
+        """scene_plan_update carries the serialised ScenePlan."""
+        from models import WSMessage, WSMessageType
+
+        msg = WSMessage(
+            type=WSMessageType.scene_plan_update,
+            payload={"event_name": "Apollo 11"},
+        )
+        assert msg.type == WSMessageType.scene_plan_update
+
+    def test_scene_exit_message(self):
+        """scene_exit message has no required payload."""
+        from models import WSMessage, WSMessageType
+
+        msg = WSMessage(type=WSMessageType.scene_exit)
+        assert msg.type == WSMessageType.scene_exit
+        assert msg.payload is None
 
 
 # ---------------------------------------------------------------------------

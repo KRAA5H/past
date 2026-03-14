@@ -48,11 +48,13 @@ class GeminiLiveSession:
         on_audio: Callable[[bytes], Awaitable[None]] | None = None,
         on_text: Callable[[str], Awaitable[None]] | None = None,
         model: str = LIVE_MODEL,
+        system_prompt: str | None = None,
     ) -> None:
         self._client = genai.Client(api_key=api_key, http_options={"api_version": "v1beta"})
         self._model = model
         self._on_audio = on_audio
         self._on_text = on_text
+        self._system_prompt = system_prompt if system_prompt is not None else SYSTEM_PROMPT
         self._session: Any = None
         self._receive_task: asyncio.Task | None = None
 
@@ -65,7 +67,7 @@ class GeminiLiveSession:
         config = genai_types.LiveConnectConfig(
             response_modalities=["AUDIO"],
             system_instruction=genai_types.Content(
-                parts=[genai_types.Part(text=SYSTEM_PROMPT)]
+                parts=[genai_types.Part(text=self._system_prompt)]
             ),
             speech_config=genai_types.SpeechConfig(
                 voice_config=genai_types.VoiceConfig(

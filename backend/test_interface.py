@@ -18,7 +18,13 @@ Features
 4. GeminiLiveSession — text, mock mode  (no API key needed)
 5. GeminiLiveSession — text, live API   (GEMINI_API_KEY required)
 6. Run pytest unit-tests
+7. Full flow simulation — mock          (no API key needed)
 0. Exit
+
+Full interaction flow (option 7):
+  idea → scene description → structured JSON → create render
+  → explore render → press key to interact with NPC → intro cutscene
+  → use voice to talk to NPC → leave → exit scene
 """
 from __future__ import annotations
 
@@ -475,6 +481,164 @@ def option_run_tests() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Option 7 — Full flow simulation (mock, no API key needed)
+# ---------------------------------------------------------------------------
+
+
+def option_full_flow_simulation() -> None:
+    """
+    Simulate the complete Chronos interaction flow end-to-end using mocked
+    Gemini clients. No API key required.
+
+    Flow:
+      Idea → scene_request → ScenePlan (scene_plan_update)
+           → explore scene
+           → npc_interact → cutscene_start (intro_narration)
+           → npc voice conversation (mock audio/text)
+           → npc_leave
+           → scene_exit
+    """
+    _hdr("Full Flow Simulation — Mock Mode")
+
+    print("This demo walks through every stage of the Chronos interaction flow:\n")
+    print("  1. Idea input (scene_request)")
+    print("  2. ScenePlan generated (scene_plan_update)")
+    print("  3. Scene exploration")
+    print("  4. Press [E] → NPC interact (npc_interact)")
+    print("  5. Intro cutscene (cutscene_start)")
+    print("  6. Voice/text conversation with NPC")
+    print("  7. Leave NPC (npc_leave)")
+    print("  8. Exit scene (scene_exit)\n")
+
+    input("Press Enter to begin the simulation…")
+
+    # ── Stage 1: Idea input ────────────────────────────────────────────────
+
+    _hdr("Stage 1 — Idea")
+    idea = input("Describe a historical moment (or press Enter for default)\n> ").strip()
+    if not idea:
+        idea = "Apollo 11 moon landing, Mission Control 1969"
+        _warn(f"Using default: {idea}")
+
+    # ── Stage 2: ScenePlan generation (mocked) ────────────────────────────
+
+    _hdr("Stage 2 — Scene Description → Structured JSON (ScenePlan)")
+    print(f"Generating ScenePlan for: {_BOLD}{idea}{_RESET}")
+    print("(using fallback Apollo 11 scene — no API key needed)\n")
+
+    from scene_planner import _build_fallback_scene
+    from models import WSMessage, WSMessageType
+
+    plan = _build_fallback_scene()
+    plan_msg = WSMessage(
+        type=WSMessageType.scene_plan_update,
+        payload=plan.model_dump(mode="json"),
+    )
+    _ok(f"scene_plan_update sent: event_name={plan.event_name!r}")
+    print(f"  dramatic_moment : {plan.dramatic_moment}")
+    print(f"  intro_narration : {plan.intro_narration[:80]}…")
+    print(f"  characters      : {[c.name for c in plan.characters]}")
+    print(f"  props           : {[p.id for p in plan.props]}")
+    print(f"  lights          : {len(plan.lights)} light(s)")
+    print(f"  ambient_sounds  : {plan.ambient_sounds}")
+
+    # ── Stage 3: Scene exploration ─────────────────────────────────────────
+
+    _hdr("Stage 3 — Explore Render")
+    print("(In the real frontend the user orbits the 3D scene using OrbitControls)")
+    print(f"  Room: {plan.room.width}m × {plan.room.depth}m × {plan.room.height}m")
+    input("\nPress Enter to interact with the primary NPC…")
+
+    # ── Stage 4: Key press → NPC interact ─────────────────────────────────
+
+    _hdr("Stage 4 — Press [E] to Interact with NPC")
+
+    primary = next((c for c in plan.characters if c.primary), plan.characters[0])
+    print(f"Primary character: {_BOLD}{primary.name}{_RESET}")
+    print(f"  role            : {primary.role}")
+    print(f"  interact_text   : {primary.interact_text}")
+    print(f"  persona_summary : {primary.persona_summary[:80]}…")
+
+    npc_interact_msg = WSMessage(
+        type=WSMessageType.npc_interact,
+        payload={"npc_id": primary.id},
+    )
+    _ok(f"npc_interact sent: npc_id={primary.id!r}")
+
+    # ── Stage 5: Intro cutscene ────────────────────────────────────────────
+
+    _hdr("Stage 5 — Intro Cutscene")
+
+    cutscene_msg = WSMessage(
+        type=WSMessageType.cutscene_start,
+        payload={
+            "intro_narration": plan.intro_narration,
+            "character_name": primary.name,
+        },
+    )
+    _ok(f"cutscene_start received: character={primary.name!r}")
+    print(f"\n  {_CYAN}{plan.intro_narration}{_RESET}\n")
+    input("Press Enter to begin the conversation…")
+
+    # ── Stage 6: Voice/text conversation (mocked) ─────────────────────────
+
+    _hdr("Stage 6 — Voice Conversation with NPC")
+    print(f"Talking with {_BOLD}{primary.name}{_RESET}")
+    print(f"Persona: {primary.persona_summary[:120]}\n")
+    print("Type messages to simulate voice input. Enter 'leave' to end.\n")
+
+    mock_responses = [
+        f"[{primary.name}] We are four minutes from touchdown. Remain calm.",
+        f"[{primary.name}] Every console is go. This is history in the making.",
+        f"[{primary.name}] I have full confidence in this crew.",
+    ]
+    response_cycle = iter(mock_responses + mock_responses)
+
+    while True:
+        try:
+            user_text = input("You > ").strip()
+        except (EOFError, KeyboardInterrupt):
+            break
+        if user_text.lower() in ("leave", "exit", "done", ""):
+            break
+        # Simulate audio_chunk → transcript flow
+        transcript_msg = WSMessage(
+            type=WSMessageType.transcript,
+            payload={"text": next(response_cycle, f"[{primary.name}] Understood.")},
+        )
+        print(f"  {_GREEN}{transcript_msg.payload['text']}{_RESET}\n")
+
+    # ── Stage 7: npc_leave ─────────────────────────────────────────────────
+
+    _hdr("Stage 7 — Leave NPC")
+    npc_leave_msg = WSMessage(type=WSMessageType.npc_leave)
+    _ok(f"npc_leave sent — general Live session restored")
+    print(f"  Payload: {npc_leave_msg.model_dump()}")
+
+    # ── Stage 8: scene_exit ────────────────────────────────────────────────
+
+    input("\nPress Enter to exit the scene…")
+    _hdr("Stage 8 — Exit Scene")
+    scene_exit_msg = WSMessage(type=WSMessageType.scene_exit)
+    _ok("scene_exit sent — back to idle")
+    status_msg = WSMessage(
+        type=WSMessageType.status,
+        payload={"scene_exited": True},
+    )
+    _ok(f"status received: {status_msg.payload}")
+    print(f"\n{_BOLD}Full flow complete.{_RESET} All 8 stages exercised successfully.")
+    print("Message types used:", [
+        WSMessageType.scene_plan_update.value,
+        WSMessageType.npc_interact.value,
+        WSMessageType.cutscene_start.value,
+        WSMessageType.transcript.value,
+        WSMessageType.npc_leave.value,
+        WSMessageType.scene_exit.value,
+        WSMessageType.status.value,
+    ])
+
+
+# ---------------------------------------------------------------------------
 # Main menu
 # ---------------------------------------------------------------------------
 
@@ -488,6 +652,7 @@ _MENU = f"""
   {_CYAN}4{_RESET} — GeminiLiveSession: text, mock       (no API key needed)
   {_CYAN}5{_RESET} — GeminiLiveSession: text, live API   (GEMINI_API_KEY required)
   {_CYAN}6{_RESET} — Run pytest unit tests
+  {_CYAN}7{_RESET} — Full flow simulation (mock)         (no API key needed)
   {_CYAN}0{_RESET} — Exit
 """
 
@@ -498,6 +663,7 @@ _OPTIONS = {
     "4": option_live_session_mock,
     "5": option_live_session_live,
     "6": option_run_tests,
+    "7": option_full_flow_simulation,
 }
 
 
@@ -533,7 +699,7 @@ def main() -> None:
                 import traceback
                 traceback.print_exc()
         else:
-            _warn(f"Unknown option '{choice}'. Enter 0-6.")
+            _warn(f"Unknown option '{choice}'. Enter 0-7.")
 
         print()  # blank line between interactions
 

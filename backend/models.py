@@ -160,13 +160,18 @@ class WSMessageType(str, Enum):
     audio_chunk = "audio_chunk"
     text_input = "text_input"
     scene_request = "scene_request"
+    npc_interact = "npc_interact"
+    npc_leave = "npc_leave"
+    scene_exit = "scene_exit"
 
     # Server → Client
     scene_update = "scene_update"
+    scene_plan_update = "scene_plan_update"
     audio_output = "audio_output"
     transcript = "transcript"
     error = "error"
     status = "status"
+    cutscene_start = "cutscene_start"
 
 
 class WSMessage(BaseModel):

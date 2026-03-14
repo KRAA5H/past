@@ -8,6 +8,13 @@ Routes:
   GET  /api/scene/{id}     — retrieve a stored scene
   GET  /api/scene/plan/{id}— retrieve a stored ScenePlan
   WS   /ws/{session_id}    — bidirectional audio/text WebSocket
+
+WebSocket message flow (idea → Scene → NPC → Voice → Leave → Exit):
+  Client sends scene_request    → server generates ScenePlan → sends scene_plan_update
+  Client sends npc_interact     → server starts NPC Live session → sends cutscene_start
+  Client sends audio_chunk/text → forwarded to active Live session
+  Client sends npc_leave        → server resets to general Live session
+  Client sends scene_exit       → server clears scene state
 """
 from __future__ import annotations
 
@@ -168,7 +175,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     await websocket.accept()
     logger.info("WebSocket connected: %s", session_id)
 
-    # Queues for bridging WS ↔ Live session
+    # Queues bridge WS ↔ Live session and persist across Live session restarts.
     audio_out_queue: asyncio.Queue[bytes] = asyncio.Queue()
     text_out_queue: asyncio.Queue[str] = asyncio.Queue()
 
@@ -178,16 +185,22 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     async def on_text(text: str) -> None:
         await text_out_queue.put(text)
 
-    live: GeminiLiveSession | None = None
-
-    if GEMINI_API_KEY:
-        live = GeminiLiveSession(
+    async def _start_live(system_prompt: str | None = None) -> GeminiLiveSession:
+        """Create, start and register a GeminiLiveSession."""
+        sess = GeminiLiveSession(
             api_key=GEMINI_API_KEY,
             on_audio=on_audio,
             on_text=on_text,
+            system_prompt=system_prompt,
         )
-        await live.start()
-        _live_sessions[session_id] = live
+        await sess.start()
+        _live_sessions[session_id] = sess
+        return sess
+
+    live: GeminiLiveSession | None = None
+
+    if GEMINI_API_KEY:
+        live = await _start_live()
 
     # Send a status message to the client
     await websocket.send_json(
@@ -220,7 +233,8 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
             except Exception:
                 break
 
-    # Start forwarding tasks
+    # Start forwarding tasks once; they survive Live session restarts because
+    # they read from the shared queues rather than from a specific session.
     tasks = []
     if live:
         tasks.append(asyncio.create_task(forward_audio_out()))
@@ -241,12 +255,17 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                 )
                 continue
 
+            # ----------------------------------------------------------------
+            # audio_chunk — forward raw PCM to the active Live session
+            # ----------------------------------------------------------------
             if msg.type == WSMessageType.audio_chunk:
-                # payload.data is a list of ints (PCM bytes)
                 if live and msg.payload and "data" in msg.payload:
                     pcm = bytes(msg.payload["data"])
                     await live.send_audio(pcm)
 
+            # ----------------------------------------------------------------
+            # text_input — forward text to the active Live session (or echo)
+            # ----------------------------------------------------------------
             elif msg.type == WSMessageType.text_input:
                 text = (msg.payload or {}).get("text", "")
                 if text:
@@ -261,27 +280,96 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
                             ).model_dump()
                         )
 
+            # ----------------------------------------------------------------
+            # scene_request — Idea → ScenePlan (generate_scene_plan)
+            # ----------------------------------------------------------------
             elif msg.type == WSMessageType.scene_request:
                 prompt = (msg.payload or {}).get("prompt", "")
-                if prompt and GEMINI_API_KEY:
-                    planner = ScenePlanner(api_key=GEMINI_API_KEY)
-                    try:
-                        state = planner.plan_scene(prompt, session_id=session_id)
-                        _scene_states[session_id] = state
+                if prompt:
+                    if GEMINI_API_KEY:
+                        planner = ScenePlanner(api_key=GEMINI_API_KEY)
+                        try:
+                            plan = planner.generate_scene_plan(prompt)
+                            _scene_plans[session_id] = plan
+                            await websocket.send_json(
+                                WSMessage(
+                                    type=WSMessageType.scene_plan_update,
+                                    payload=plan.model_dump(mode="json"),
+                                ).model_dump()
+                            )
+                        except Exception as exc:
+                            logger.error("Scene plan error: %s", exc)
+                            await websocket.send_json(
+                                WSMessage(
+                                    type=WSMessageType.error,
+                                    payload={"detail": str(exc)},
+                                ).model_dump()
+                            )
+                    else:
+                        # No API key — use fallback Apollo 11 scene
+                        from scene_planner import _build_fallback_scene
+                        plan = _build_fallback_scene()
+                        _scene_plans[session_id] = plan
                         await websocket.send_json(
                             WSMessage(
-                                type=WSMessageType.scene_update,
-                                payload=state.model_dump(),
+                                type=WSMessageType.scene_plan_update,
+                                payload=plan.model_dump(mode="json"),
                             ).model_dump()
                         )
-                    except Exception as exc:
-                        logger.error("Scene planning error: %s", exc)
+
+            # ----------------------------------------------------------------
+            # npc_interact — press key → intro cutscene + NPC Live session
+            # ----------------------------------------------------------------
+            elif msg.type == WSMessageType.npc_interact:
+                npc_id = (msg.payload or {}).get("npc_id", "")
+                plan = _scene_plans.get(session_id)
+                if plan:
+                    character = next(
+                        (c for c in plan.characters if c.id == npc_id), None
+                    )
+                    if character:
+                        if GEMINI_API_KEY:
+                            # Restart Live session using the NPC's persona
+                            if live:
+                                await live.close()
+                            live = await _start_live(character.persona_summary)
+                        # Send cutscene_start with intro narration
                         await websocket.send_json(
                             WSMessage(
-                                type=WSMessageType.error,
-                                payload={"detail": str(exc)},
+                                type=WSMessageType.cutscene_start,
+                                payload={
+                                    "intro_narration": plan.intro_narration,
+                                    "character_name": character.name,
+                                },
                             ).model_dump()
                         )
+
+            # ----------------------------------------------------------------
+            # npc_leave — leave NPC interaction, restore general Live session
+            # ----------------------------------------------------------------
+            elif msg.type == WSMessageType.npc_leave:
+                if live:
+                    await live.close()
+                    _live_sessions.pop(session_id, None)
+                    live = None
+                if GEMINI_API_KEY:
+                    live = await _start_live()
+                    if not tasks:
+                        tasks.append(asyncio.create_task(forward_audio_out()))
+                        tasks.append(asyncio.create_task(forward_text_out()))
+
+            # ----------------------------------------------------------------
+            # scene_exit — clear scene state, back to idle
+            # ----------------------------------------------------------------
+            elif msg.type == WSMessageType.scene_exit:
+                _scene_plans.pop(session_id, None)
+                _scene_states.pop(session_id, None)
+                await websocket.send_json(
+                    WSMessage(
+                        type=WSMessageType.status,
+                        payload={"scene_exited": True},
+                    ).model_dump()
+                )
 
     except WebSocketDisconnect:
         logger.info("WebSocket disconnected: %s", session_id)
