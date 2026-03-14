@@ -6,7 +6,7 @@ from __future__ import annotations
 import json
 import uuid
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic import ValidationError
@@ -69,6 +69,85 @@ class SoundID(str, Enum):
     typewriter_clatter = "typewriter_clatter"
     machinery_hum = "machinery_hum"
     silence = "silence"
+
+
+class MaterialType(str, Enum):
+    wood = "wood"
+    metal = "metal"
+    fabric = "fabric"
+    glass = "glass"
+    stone = "stone"
+    plastic = "plastic"
+    paper = "paper"
+    leather = "leather"
+    ceramic = "ceramic"
+
+
+class AnimationHint(str, Enum):
+    idle_standing = "idle_standing"
+    idle_sitting = "idle_sitting"
+    working_console = "working_console"
+    walking = "walking"
+    pointing = "pointing"
+    talking_gesture = "talking_gesture"
+    saluting = "saluting"
+    writing = "writing"
+    watching_sky = "watching_sky"
+
+
+class CharacterArchetype(str, Enum):
+    formal_male = "formal_male"
+    formal_female = "formal_female"
+    military_male = "military_male"
+    military_female = "military_female"
+    laborer = "laborer"
+    scientist = "scientist"
+    civilian = "civilian"
+
+
+class ArchitectureStyle(str, Enum):
+    victorian = "victorian"
+    colonial_american = "colonial_american"
+    ancient_roman = "ancient_roman"
+    ancient_greek = "ancient_greek"
+    medieval_european = "medieval_european"
+    ww1_trench = "ww1_trench"
+    ww2_bunker = "ww2_bunker"
+    mid_century_modern = "mid_century_modern"
+    space_age = "space_age"
+    contemporary = "contemporary"
+
+
+class TimeOfDay(str, Enum):
+    dawn = "dawn"
+    morning = "morning"
+    midday = "midday"
+    afternoon = "afternoon"
+    dusk = "dusk"
+    evening = "evening"
+    night = "night"
+    unknown = "unknown"
+
+
+class Atmosphere(str, Enum):
+    tense = "tense"
+    solemn = "solemn"
+    triumphant = "triumphant"
+    mundane = "mundane"
+    chaotic = "chaotic"
+    quiet = "quiet"
+    celebratory = "celebratory"
+    ominous = "ominous"
+
+
+class SkyboxHint(str, Enum):
+    none = "none"
+    night_stars = "night_stars"
+    overcast = "overcast"
+    clear_day = "clear_day"
+    sunrise = "sunrise"
+    sunset = "sunset"
+    stormy = "stormy"
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +317,30 @@ class Room(BaseModel):
     height: float = Field(..., gt=0.0, le=5.0)
     fog: Fog
     ambient_color: str = Field(..., description="Dominant ambient hex colour")
+    architecture_style: ArchitectureStyle = Field(
+        default=ArchitectureStyle.contemporary,
+        description="Architectural style of the room",
+    )
+    time_of_day: TimeOfDay = Field(
+        default=TimeOfDay.unknown,
+        description="Time of day for the scene",
+    )
+    atmosphere: Atmosphere = Field(
+        default=Atmosphere.mundane,
+        description="Emotional atmosphere of the scene",
+    )
+    ceiling_material: str = Field(
+        default="plaster",
+        description="Material of the ceiling",
+    )
+    has_windows: bool = Field(
+        default=False,
+        description="Whether the room has windows",
+    )
+    ambient_light_color: str = Field(
+        default="#ffffff",
+        description="Ambient light colour hex string",
+    )
 
 
 class Material(BaseModel):
@@ -256,6 +359,30 @@ class Prop(BaseModel):
     interact_type: Optional[InteractType] = None
     interact_text: Optional[str] = None
     interact_content: Optional[str] = None
+    material_type: MaterialType = Field(
+        default=MaterialType.wood,
+        description="Physical material substance of the prop",
+    )
+    scale: Tuple[float, float, float] = Field(
+        default=(1.0, 1.0, 1.0),
+        description="Scale multiplier (width, height, depth) relative to base shape size",
+    )
+    rotation_y: float = Field(
+        default=0.0,
+        description="Rotation in degrees around the Y axis",
+    )
+    emissive: bool = Field(
+        default=False,
+        description="Whether the prop emits visible light",
+    )
+    emissive_color: str = Field(
+        default="#ffffff",
+        description="Emissive colour hex string",
+    )
+    emissive_intensity: float = Field(
+        default=1.0,
+        description="Emissive intensity",
+    )
 
     @model_validator(mode="after")
     def check_interactable_fields(self) -> "Prop":
@@ -292,6 +419,18 @@ class Character(BaseModel):
     persona_summary: str = Field(..., description="Voice agent system prompt, max 60 words")
     interact_text: str = Field(..., description="UI hover label")
     primary: bool = False
+    rotation_y: float = Field(
+        default=0.0,
+        description="Rotation in degrees around the Y axis",
+    )
+    animation_hint: AnimationHint = Field(
+        default=AnimationHint.idle_standing,
+        description="Animation hint for the character",
+    )
+    archetype: CharacterArchetype = Field(
+        default=CharacterArchetype.formal_male,
+        description="Character archetype for base mesh selection",
+    )
 
     @field_validator("head_portrait_prompt")
     @classmethod
@@ -313,6 +452,18 @@ class Light(BaseModel):
     position: Position3D
     color: str = Field(..., description="Hex colour")
     intensity: float = Field(..., ge=0.0, le=2.0)
+    decay: float = Field(
+        default=2.0,
+        description="Light decay for physically correct inverse-square falloff",
+    )
+    cast_shadow: bool = Field(
+        default=True,
+        description="Whether this light casts shadows",
+    )
+    source_label: str = Field(
+        default="",
+        description="Hint label such as candle, gas lamp, monitor glow, or fire",
+    )
 
 
 class CameraStart(BaseModel):
@@ -341,6 +492,10 @@ class ScenePlan(BaseModel):
     ambient_sounds: list[SoundID] = Field(default_factory=list, max_length=2)
     intro_narration: str
     camera_start: CameraStart
+    skybox_hint: SkyboxHint = Field(
+        default=SkyboxHint.none,
+        description="Skybox hint; must be none for fully enclosed indoor scenes",
+    )
 
     @field_validator("dramatic_moment")
     @classmethod
