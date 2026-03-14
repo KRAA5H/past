@@ -26,7 +26,7 @@ export default function App() {
     return () => {
       if (narrationTimer.current) clearTimeout(narrationTimer.current)
     }
-  }, [scenePlan])
+  }, [scenePlan?.intro_narration])
 
   // Wire AudioManager → sendAudio
   useEffect(() => {

@@ -290,10 +290,12 @@ function PlanCharacter({ char }: { char: ScenePlanCharacter }) {
 function CameraSetter({ position }: { position: [number, number, number] }) {
   const { camera } = useThree()
   const hasSet = useRef(false)
-  if (!hasSet.current) {
-    camera.position.set(position[0], position[1], position[2])
-    hasSet.current = true
-  }
+  useFrame(() => {
+    if (!hasSet.current) {
+      camera.position.set(position[0], position[1], position[2])
+      hasSet.current = true
+    }
+  })
   return null
 }
 
