@@ -22,7 +22,7 @@ from google.genai import types as genai_types
 
 logger = logging.getLogger(__name__)
 
-LIVE_MODEL = "gemini-2.0-flash-live-001"
+LIVE_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
 
 SYSTEM_PROMPT = (
     "You are Chronos, an AI guide to the past. "

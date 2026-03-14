@@ -150,7 +150,7 @@ SYSTEM_PROMPT = (
 
 
 class ScenePlanner:
-    def __init__(self, api_key: str, model: str = "gemini-2.0-flash") -> None:
+    def __init__(self, api_key: str, model: str = "gemini-3.1-flash-lite-preview") -> None:
         self._client = genai.Client(api_key=api_key)
         self._model = model
 
