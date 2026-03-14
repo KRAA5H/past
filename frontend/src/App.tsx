@@ -5,12 +5,28 @@ import { useChronos } from './useChronos'
 import { AudioManager } from './AudioManager'
 
 export default function App() {
-  const { sceneState, status, transcript, sendAudio, sendSceneRequest } =
+  const { sceneState, scenePlan, status, transcript, sendAudio, sendSceneRequest } =
     useChronos(`ws://${window.location.hostname}:8000`)
 
   const [prompt, setPrompt] = useState('')
   const audioManagerRef = useRef<AudioManager | null>(null)
   const [recording, setRecording] = useState(false)
+  const [showNarration, setShowNarration] = useState(false)
+  const narrationTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Fade out narration after 8 seconds when scenePlan changes
+  useEffect(() => {
+    if (narrationTimer.current) clearTimeout(narrationTimer.current)
+    if (scenePlan?.intro_narration) {
+      setShowNarration(true)
+      narrationTimer.current = setTimeout(() => setShowNarration(false), 8000)
+    } else {
+      setShowNarration(false)
+    }
+    return () => {
+      if (narrationTimer.current) clearTimeout(narrationTimer.current)
+    }
+  }, [scenePlan?.intro_narration])
 
   // Wire AudioManager → sendAudio
   useEffect(() => {
@@ -45,8 +61,33 @@ export default function App() {
         camera={{ position: [0, 2, 8], fov: 60 }}
         style={{ position: 'absolute', inset: 0 }}
       >
-        <Scene state={sceneState} />
+        <Scene state={sceneState} scenePlan={scenePlan} />
       </Canvas>
+
+      {/* Narration overlay */}
+      {showNarration && scenePlan?.intro_narration && (
+        <div
+          style={{
+            position: 'absolute',
+            bottom: '5rem',
+            left: '50%',
+            transform: 'translateX(-50%)',
+            maxWidth: '600px',
+            width: '90%',
+            padding: '0.75rem 1.25rem',
+            background: 'rgba(0,0,0,0.75)',
+            color: '#e2e8f0',
+            borderRadius: 8,
+            fontSize: '0.95rem',
+            lineHeight: 1.5,
+            textAlign: 'center',
+            pointerEvents: 'none',
+            transition: 'opacity 1s ease-out',
+          }}
+        >
+          {scenePlan.intro_narration}
+        </div>
+      )}
 
       {/* HUD overlay */}
       <div

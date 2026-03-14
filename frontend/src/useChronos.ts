@@ -36,6 +36,75 @@ export interface SceneState {
   lighting: string
 }
 
+// ---------------------------------------------------------------------------
+// ScenePlan types (mirror backend structured models)
+// ---------------------------------------------------------------------------
+
+type Vec3Input = { x: number; y: number; z: number } | [number, number, number]
+
+export function toTuple3(v: Vec3Input): [number, number, number] {
+  if (Array.isArray(v)) return [v[0], v[1], v[2]]
+  return [v.x, v.y, v.z]
+}
+
+export interface ScenePlanFog {
+  color: string
+  near: number
+  far: number
+}
+
+export interface ScenePlanRoom {
+  width: number
+  depth: number
+  height: number
+  fog: ScenePlanFog
+  ambient_color: string
+}
+
+export interface ScenePlanLight {
+  type: 'point' | 'spot' | 'ambient'
+  position: Vec3Input
+  color: string
+  intensity: number
+}
+
+export interface ScenePlanMaterial {
+  color: string
+  roughness: number
+  emissive_color?: string | null
+}
+
+export interface ScenePlanProp {
+  id: string
+  shape: 'box' | 'sphere' | 'cylinder'
+  dimensions: [number, number, number]
+  position: Vec3Input
+  material: ScenePlanMaterial
+  interactable: boolean
+}
+
+export interface ScenePlanCharacter {
+  id: string
+  name: string
+  role: string
+  position: Vec3Input
+  primary: boolean
+  persona_summary: string
+}
+
+export interface ScenePlan {
+  scene_id: string
+  event_name: string
+  dramatic_moment: string
+  room: ScenePlanRoom
+  lights: ScenePlanLight[]
+  props: ScenePlanProp[]
+  characters: ScenePlanCharacter[]
+  ambient_sounds: string[]
+  intro_narration: string
+  camera_start: Vec3Input
+}
+
 type WSMessageType =
   | 'audio_chunk'
   | 'text_input'
@@ -75,6 +144,7 @@ function playPcmChunk(audioCtx: AudioContext, data: number[]): void {
 
 export function useChronos(backendWsUrl: string) {
   const [sceneState, setSceneState] = useState<SceneState | null>(null)
+  const [scenePlan, setScenePlan] = useState<ScenePlan | null>(null)
   const [status, setStatus] = useState('Connecting…')
   const [transcript, setTranscript] = useState('')
 
@@ -168,10 +238,25 @@ export function useChronos(backendWsUrl: string) {
 
   const sendSceneRequest = useCallback(
     (prompt: string) => {
+      // Keep the existing WebSocket scene_request
       send({ type: 'scene_request', payload: { prompt } })
+
+      // Also fire a parallel POST to the structured ScenePlan endpoint
+      const httpBase = backendWsUrl.replace(/^ws/, 'http')
+      fetch(`${httpBase}/api/scene/plan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      })
+        .then((res) => {
+          if (!res.ok) throw new Error(`ScenePlan fetch failed: ${res.status}`)
+          return res.json() as Promise<ScenePlan>
+        })
+        .then((plan) => setScenePlan(plan))
+        .catch((err) => console.error('[useChronos] ScenePlan error:', err))
     },
-    [send]
+    [send, backendWsUrl]
   )
 
-  return { sceneState, status, transcript, sendText, sendAudio, sendSceneRequest }
+  return { sceneState, scenePlan, status, transcript, sendText, sendAudio, sendSceneRequest }
 }
