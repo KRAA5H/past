@@ -9,14 +9,113 @@
 import { useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import {
+  ContactShadows,
   Environment,
   OrbitControls,
+  Sky,
   Text,
   Html,
 } from '@react-three/drei'
+import {
+  EffectComposer,
+  Bloom,
+  Vignette,
+  DepthOfField,
+  Noise,
+} from '@react-three/postprocessing'
 import * as THREE from 'three'
 import type { SceneState, NPCBase, SceneObjectBase, ScenePlan, ScenePlanLight, ScenePlanProp, ScenePlanCharacter } from './useChronos'
 import { toTuple3 } from './useChronos'
+
+// ---------------------------------------------------------------------------
+// Material property lookup by material_type
+// ---------------------------------------------------------------------------
+
+interface PhysicalMaterialProps {
+  roughness: number
+  metalness: number
+  clearcoat: number
+  sheen: number
+  transmission: number
+}
+
+const MATERIAL_PROPERTIES: Record<string, PhysicalMaterialProps> = {
+  wood:    { roughness: 0.8, metalness: 0.0, clearcoat: 0.1, sheen: 0.0, transmission: 0.0 },
+  metal:   { roughness: 0.3, metalness: 0.9, clearcoat: 0.2, sheen: 0.0, transmission: 0.0 },
+  fabric:  { roughness: 0.9, metalness: 0.0, clearcoat: 0.0, sheen: 0.8, transmission: 0.0 },
+  glass:   { roughness: 0.05, metalness: 0.0, clearcoat: 1.0, sheen: 0.0, transmission: 0.8 },
+  stone:   { roughness: 0.9, metalness: 0.0, clearcoat: 0.0, sheen: 0.0, transmission: 0.0 },
+  plastic: { roughness: 0.4, metalness: 0.0, clearcoat: 0.5, sheen: 0.0, transmission: 0.0 },
+  paper:   { roughness: 0.95, metalness: 0.0, clearcoat: 0.0, sheen: 0.1, transmission: 0.0 },
+  leather: { roughness: 0.7, metalness: 0.0, clearcoat: 0.15, sheen: 0.3, transmission: 0.0 },
+  ceramic: { roughness: 0.3, metalness: 0.0, clearcoat: 0.6, sheen: 0.0, transmission: 0.0 },
+}
+
+// ---------------------------------------------------------------------------
+// Environment preset mapping
+// ---------------------------------------------------------------------------
+
+type EnvPreset = 'sunset' | 'dawn' | 'night' | 'warehouse' | 'forest' | 'apartment' | 'city' | 'studio' | 'park' | 'lobby'
+
+function getEnvPreset(architectureStyle?: string, timeOfDay?: string): EnvPreset {
+  // Time-of-day takes priority for outdoor feel
+  if (timeOfDay === 'dawn' || timeOfDay === 'sunrise') return 'dawn'
+  if (timeOfDay === 'dusk' || timeOfDay === 'sunset') return 'sunset'
+  if (timeOfDay === 'night') return 'night'
+
+  // Architecture style fallback
+  switch (architectureStyle) {
+    case 'victorian':
+    case 'colonial_american':
+      return 'apartment'
+    case 'ancient_roman':
+    case 'ancient_greek':
+      return 'park'
+    case 'medieval_european':
+      return 'forest'
+    case 'ww1_trench':
+    case 'ww2_bunker':
+      return 'warehouse'
+    case 'space_age':
+    case 'mid_century_modern':
+      return 'studio'
+    case 'contemporary':
+    default:
+      return 'city'
+  }
+}
+
+function getSceneBackgroundColor(atmosphere?: string, timeOfDay?: string): string {
+  // Darker backgrounds for nighttime / tense scenes
+  if (timeOfDay === 'night') return '#0a0a1a'
+  if (timeOfDay === 'dawn' || timeOfDay === 'sunrise') return '#2a1a30'
+  if (timeOfDay === 'dusk' || timeOfDay === 'sunset') return '#3a1a10'
+
+  switch (atmosphere) {
+    case 'tense':
+    case 'ominous':
+      return '#1a1a2e'
+    case 'solemn':
+      return '#2a2a3e'
+    case 'chaotic':
+      return '#3a2020'
+    case 'triumphant':
+    case 'celebratory':
+      return '#2e2e1a'
+    case 'quiet':
+      return '#2e3a2e'
+    default:
+      return '#1e293b'
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Degree to radian conversion helper
+// ---------------------------------------------------------------------------
+
+function degToRad(degrees: number): number {
+  return degrees * (Math.PI / 180)
+}
 
 // ---------------------------------------------------------------------------
 // NPC mesh
@@ -53,7 +152,7 @@ function NPCMesh({ npc }: NPCProps) {
       {/* Body */}
       <mesh ref={meshRef}>
         <capsuleGeometry args={[0.25, 0.8, 8, 16]} />
-        <meshStandardMaterial color={color} />
+        <meshPhysicalMaterial color={color} roughness={0.7} metalness={0.0} />
       </mesh>
       {/* Name label */}
       <Text
@@ -107,7 +206,7 @@ function SceneObjectMesh({ obj }: SceneObjectProps) {
     >
       <mesh>
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial color="#78716c" wireframe />
+        <meshPhysicalMaterial color="#78716c" wireframe />
       </mesh>
       <Text
         position={[0, 0.7, 0]}
@@ -130,7 +229,7 @@ function Ground() {
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
       <planeGeometry args={[40, 40]} />
-      <meshStandardMaterial color="#4a5568" roughness={1} />
+      <meshPhysicalMaterial color="#4a5568" roughness={1} />
     </mesh>
   )
 }
@@ -146,22 +245,22 @@ function PlanRoom({ room }: { room: ScenePlan['room'] }) {
       {/* Floor */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[width, depth]} />
-        <meshStandardMaterial color="#4a5568" roughness={1} />
+        <meshPhysicalMaterial color="#4a5568" roughness={1} />
       </mesh>
       {/* Back wall */}
-      <mesh position={[0, height / 2, -depth / 2]}>
+      <mesh position={[0, height / 2, -depth / 2]} receiveShadow>
         <planeGeometry args={[width, height]} />
-        <meshStandardMaterial color="#6b7280" side={THREE.DoubleSide} />
+        <meshPhysicalMaterial color="#6b7280" side={THREE.DoubleSide} />
       </mesh>
       {/* Left wall */}
-      <mesh position={[-width / 2, height / 2, 0]} rotation={[0, Math.PI / 2, 0]}>
+      <mesh position={[-width / 2, height / 2, 0]} rotation={[0, Math.PI / 2, 0]} receiveShadow>
         <planeGeometry args={[depth, height]} />
-        <meshStandardMaterial color="#6b7280" side={THREE.DoubleSide} />
+        <meshPhysicalMaterial color="#6b7280" side={THREE.DoubleSide} />
       </mesh>
       {/* Right wall */}
-      <mesh position={[width / 2, height / 2, 0]} rotation={[0, -Math.PI / 2, 0]}>
+      <mesh position={[width / 2, height / 2, 0]} rotation={[0, -Math.PI / 2, 0]} receiveShadow>
         <planeGeometry args={[depth, height]} />
-        <meshStandardMaterial color="#6b7280" side={THREE.DoubleSide} />
+        <meshPhysicalMaterial color="#6b7280" side={THREE.DoubleSide} />
       </mesh>
     </group>
   )
@@ -173,15 +272,18 @@ function PlanRoom({ room }: { room: ScenePlan['room'] }) {
 
 function PlanLight({ light }: { light: ScenePlanLight }) {
   const pos = toTuple3(light.position)
+  const decay = light.decay ?? 2
+  const castShadow = light.cast_shadow ?? true
+
   switch (light.type) {
     case 'point':
-      return <pointLight position={pos} color={light.color} intensity={light.intensity} />
+      return <pointLight position={pos} color={light.color} intensity={light.intensity} decay={decay} castShadow={castShadow} />
     case 'spot':
-      return <spotLight position={pos} color={light.color} intensity={light.intensity} castShadow />
+      return <spotLight position={pos} color={light.color} intensity={light.intensity} decay={decay} castShadow={castShadow} />
     case 'ambient':
       return <ambientLight color={light.color} intensity={light.intensity} />
     default:
-      return <pointLight position={pos} color={light.color} intensity={light.intensity} />
+      return <pointLight position={pos} color={light.color} intensity={light.intensity} decay={decay} castShadow={castShadow} />
   }
 }
 
@@ -193,8 +295,19 @@ function PlanProp({ prop }: { prop: ScenePlanProp }) {
   const pos = toTuple3(prop.position)
   const [w, h, d] = prop.dimensions
   const matColor = prop.material?.color ?? '#888888'
-  const roughness = prop.material?.roughness ?? 0.5
-  const emissive = prop.material?.emissive_color ?? undefined
+
+  // Look up physical material props from the material_type field
+  const matType = prop.material_type ?? 'wood'
+  const physicalProps = MATERIAL_PROPERTIES[matType] ?? MATERIAL_PROPERTIES.wood
+
+  // Emissive properties
+  const isEmissive = prop.emissive ?? false
+  const emissiveColor = isEmissive ? (prop.emissive_color ?? '#ffffff') : undefined
+  const emissiveIntensity = isEmissive ? (prop.emissive_intensity ?? 1.0) : 0
+
+  // Scale and rotation from new fields
+  const propScale = prop.scale ?? [1, 1, 1]
+  const rotationY = degToRad(prop.rotation_y ?? 0)
 
   let geometry: React.ReactNode
   switch (prop.shape) {
@@ -209,10 +322,19 @@ function PlanProp({ prop }: { prop: ScenePlanProp }) {
   }
 
   return (
-    <group position={pos}>
-      <mesh>
+    <group position={pos} rotation={[0, rotationY, 0]} scale={propScale as [number, number, number]}>
+      <mesh castShadow receiveShadow>
         {geometry}
-        <meshStandardMaterial color={matColor} roughness={roughness} emissive={emissive} />
+        <meshPhysicalMaterial
+          color={matColor}
+          roughness={physicalProps.roughness}
+          metalness={physicalProps.metalness}
+          clearcoat={physicalProps.clearcoat}
+          sheen={physicalProps.sheen}
+          transmission={physicalProps.transmission}
+          emissive={emissiveColor}
+          emissiveIntensity={emissiveIntensity}
+        />
       </mesh>
       <Html position={[0, h / 2 + 0.3, 0]} center distanceFactor={8}>
         <div
@@ -240,19 +362,28 @@ function PlanProp({ prop }: { prop: ScenePlanProp }) {
 function PlanCharacter({ char }: { char: ScenePlanCharacter }) {
   const pos = toTuple3(char.position)
   const isPrimary = char.primary
-  const scale = isPrimary ? 1.8 : 1.6
+  const meshScale = isPrimary ? 1.8 : 1.6
   const color = isPrimary ? '#4a90d9' : '#7a7a7a'
 
+  const rotationY = degToRad(char.rotation_y ?? 0)
+
   return (
-    <group position={pos}>
+    <group
+      position={pos}
+      rotation={[0, rotationY, 0]}
+      userData={{
+        animation_hint: char.animation_hint ?? 'idle_standing',
+        archetype: char.archetype ?? 'formal_male',
+      }}
+    >
       {/* Body */}
-      <mesh scale={[scale, scale, scale]}>
+      <mesh scale={[meshScale, meshScale, meshScale]} castShadow receiveShadow>
         <capsuleGeometry args={[0.25, 0.8, 8, 16]} />
-        <meshStandardMaterial color={color} />
+        <meshPhysicalMaterial color={color} roughness={0.7} metalness={0.0} />
       </mesh>
       {/* Name label */}
       <Text
-        position={[0, scale * 0.7 + 0.3, 0]}
+        position={[0, meshScale * 0.7 + 0.3, 0]}
         fontSize={0.2}
         color="#ffffff"
         anchorX="center"
@@ -264,7 +395,7 @@ function PlanCharacter({ char }: { char: ScenePlanCharacter }) {
       </Text>
       {/* Role label */}
       <Text
-        position={[0, scale * 0.7 + 0.05, 0]}
+        position={[0, meshScale * 0.7 + 0.05, 0]}
         fontSize={0.12}
         color="#a0aec0"
         anchorX="center"
@@ -276,7 +407,7 @@ function PlanCharacter({ char }: { char: ScenePlanCharacter }) {
       {isPrimary && (
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]}>
           <torusGeometry args={[0.5, 0.05, 8, 32]} />
-          <meshStandardMaterial color="#4a90d9" emissive="#4a90d9" emissiveIntensity={0.8} />
+          <meshPhysicalMaterial color="#4a90d9" emissive="#4a90d9" emissiveIntensity={0.8} />
         </mesh>
       )}
     </group>
@@ -311,19 +442,70 @@ interface SceneProps {
 export function Scene({ state, scenePlan }: SceneProps) {
   // When scenePlan is available, render the structured scene
   if (scenePlan) {
+    // Derive scene mood variables from room fields
+    const isIndoors = !(scenePlan.room.has_windows ?? false)
+    const timeOfDay = scenePlan.room.time_of_day ?? 'unknown'
+    const atmosphere = scenePlan.room.atmosphere ?? 'mundane'
+    const architectureStyle = scenePlan.room.architecture_style ?? 'contemporary'
+    const skyboxHint = scenePlan.skybox_hint ?? 'none'
+
+    const envPreset = getEnvPreset(architectureStyle, timeOfDay)
+    const bgColor = getSceneBackgroundColor(atmosphere, timeOfDay)
+
+    // Determine if Sky should render
+    const showSky = !isIndoors && skyboxHint !== 'none'
+
+    // Fog settings based on indoor/outdoor
+    const fogColor = scenePlan.room.fog.color
+    const fogNear = isIndoors ? scenePlan.room.fog.near : scenePlan.room.fog.near * 1.5
+    const fogFar = isIndoors ? scenePlan.room.fog.far : scenePlan.room.fog.far * 2
+
+    // Bloom and vignette intensity based on atmosphere and indoor/outdoor
+    const isTense = atmosphere === 'tense' || atmosphere === 'ominous'
+    const bloomIntensity = isIndoors ? (isTense ? 1.2 : 0.6) : (isTense ? 0.5 : 0.3)
+    const vignetteOffset = isIndoors ? (isTense ? 0.3 : 0.4) : 0.5
+    const vignetteDarkness = isIndoors ? (isTense ? 0.7 : 0.4) : 0.2
+
     return (
       <>
         {/* Camera position from ScenePlan */}
         <CameraSetter position={toTuple3(scenePlan.camera_start)} />
 
-        {/* Room fog */}
-        <fog
-          attach="fog"
-          args={[scenePlan.room.fog.color, scenePlan.room.fog.near, scenePlan.room.fog.far]}
+        {/* Background colour */}
+        <color attach="background" args={[bgColor]} />
+
+        {/* Fog */}
+        <fog attach="fog" args={[fogColor, fogNear, fogFar]} />
+
+        {/* Image-based lighting */}
+        <Environment preset={envPreset} />
+
+        {/* Low ambient fill */}
+        <ambientLight
+          color={scenePlan.room.ambient_light_color ?? '#ffffff'}
+          intensity={0.15}
         />
 
-        {/* Room ambient color */}
-        <ambientLight color={scenePlan.room.ambient_color} intensity={0.4} />
+        {/* Shadow-casting directional light */}
+        <directionalLight
+          position={[8, 12, 5]}
+          intensity={0.5}
+          castShadow
+          shadow-mapSize-width={1024}
+          shadow-mapSize-height={1024}
+        />
+
+        {/* Contact shadows on the ground */}
+        <ContactShadows
+          position={[0, 0, 0]}
+          opacity={0.6}
+          scale={30}
+          blur={2}
+          far={10}
+        />
+
+        {/* Sky component (only for outdoor/windowed scenes with a skybox) */}
+        {showSky && <Sky sunPosition={[100, 20, 100]} />}
 
         {/* Lights from ScenePlan */}
         {scenePlan.lights.map((light, i) => (
@@ -350,6 +532,22 @@ export function Scene({ state, scenePlan }: SceneProps) {
         {scenePlan.characters.map((char) => (
           <PlanCharacter key={char.id} char={char} />
         ))}
+
+        {/* Post-processing effects */}
+        <EffectComposer>
+          <Bloom
+            intensity={bloomIntensity}
+            luminanceThreshold={0.6}
+            luminanceSmoothing={0.9}
+          />
+          <Vignette offset={vignetteOffset} darkness={vignetteDarkness} />
+          <DepthOfField
+            focusDistance={0.01}
+            focalLength={0.05}
+            bokehScale={1.5}
+          />
+          <Noise opacity={0.02} />
+        </EffectComposer>
       </>
     )
   }
@@ -357,7 +555,7 @@ export function Scene({ state, scenePlan }: SceneProps) {
   // Fallback: existing SceneState rendering
   const lighting = state?.lighting ?? 'day'
 
-  const envPreset: 'sunset' | 'dawn' | 'night' | 'warehouse' | 'forest' | 'apartment' | 'city' | 'studio' | 'park' | 'lobby' =
+  const envPreset: EnvPreset =
     lighting === 'night'
       ? 'night'
       : lighting === 'dawn' || lighting === 'dusk'

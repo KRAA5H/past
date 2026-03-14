@@ -26,18 +26,25 @@ from models import (
     SceneState,
     SetSceneDescriptionArgs,
     # ScenePlan models
+    AnimationHint,
+    ArchitectureStyle,
+    Atmosphere,
     CameraStart,
     Character,
+    CharacterArchetype,
     Fog,
     Light,
     LightType,
     Material,
+    MaterialType,
     Position3D,
     Prop,
     Room,
     ScenePlan,
     ShapeType,
+    SkyboxHint,
     SoundID,
+    TimeOfDay,
 )
 
 logger = logging.getLogger(__name__)
@@ -79,6 +86,36 @@ SYSTEM_PROMPT = (
     "sets the scene without revealing outcomes.\n"
     "- All x and z positions: within [-10, 10]. All y positions: within [0, 5].\n"
     "- camera_start.y must be exactly 1.6.\n\n"
+    "ENHANCED FIELD RULES:\n"
+    "- material_type on each prop must reflect the actual physical substance "
+    "(wood, metal, fabric, glass, stone, plastic, paper, leather, ceramic), "
+    "not just the label word.\n"
+    "- scale on each prop uses a base unit of roughly 0.4 metres. Produce "
+    "believable relative sizing — a wide desk is much wider than a candle.\n"
+    "- rotation_y on props and characters should orient them logically toward "
+    "the scene focus rather than all facing the same direction.\n"
+    "- emissive must only be true for props that actually emit visible light "
+    "(candles, lamps, monitors, fire). emissive_color should be physically "
+    "appropriate — warm orange (#ff8c00) for flame, cool blue (#4488ff) for screens.\n"
+    "- animation_hint on each character must reflect what the character is "
+    "literally doing at the dramatic moment. Values: idle_standing, idle_sitting, "
+    "working_console, walking, pointing, talking_gesture, saluting, writing, watching_sky.\n"
+    "- archetype on each character selects a base character mesh — choose the "
+    "closest era and gender match. Values: formal_male, formal_female, "
+    "military_male, military_female, laborer, scientist, civilian.\n"
+    "- room.time_of_day must match the real historical event. Values: "
+    "dawn, morning, midday, afternoon, dusk, evening, night, unknown.\n"
+    "- room.atmosphere must reflect the emotional register of the dramatic moment. "
+    "Values: tense, solemn, triumphant, mundane, chaotic, quiet, celebratory, ominous.\n"
+    "- room.ambient_light_color must match the combined effect of all light sources.\n"
+    "- room.architecture_style: victorian, colonial_american, ancient_roman, "
+    "ancient_greek, medieval_european, ww1_trench, ww2_bunker, mid_century_modern, "
+    "space_age, contemporary.\n"
+    "- skybox_hint must be none for any fully enclosed indoor scene. Values: "
+    "none, night_stars, overcast, clear_day, sunrise, sunset, stormy.\n"
+    "- lights: decay defaults to 2 for inverse-square falloff. "
+    "cast_shadow defaults to true. source_label is a hint like candle, gas lamp, "
+    "monitor glow, or fire.\n\n"
     "QUALITY RULES:\n"
     "- Props must be historically plausible. No anachronistic objects.\n"
     "- Characters must be real historical figures if the event is documented, "
@@ -223,6 +260,12 @@ def _build_fallback_scene() -> ScenePlan:
             height=4.0,
             fog=Fog(color="#0a0a14", near=8.0, far=20.0),
             ambient_color="#1a1a3e",
+            architecture_style=ArchitectureStyle.space_age,
+            time_of_day=TimeOfDay.afternoon,
+            atmosphere=Atmosphere.tense,
+            ceiling_material="acoustic_tile",
+            has_windows=False,
+            ambient_light_color="#cce0ff",
         ),
         lights=[
             Light(
@@ -230,18 +273,27 @@ def _build_fallback_scene() -> ScenePlan:
                 position=Position3D(x=0.0, y=3.0, z=0.0),
                 color="#ffffff",
                 intensity=0.3,
+                decay=2.0,
+                cast_shadow=False,
+                source_label="fluorescent",
             ),
             Light(
                 type=LightType.point,
                 position=Position3D(x=0.0, y=3.5, z=-3.0),
                 color="#4080ff",
                 intensity=1.2,
+                decay=2.0,
+                cast_shadow=True,
+                source_label="monitor glow",
             ),
             Light(
                 type=LightType.point,
                 position=Position3D(x=5.0, y=2.0, z=0.0),
                 color="#ffcc44",
                 intensity=0.8,
+                decay=2.0,
+                cast_shadow=True,
+                source_label="overhead lamp",
             ),
         ],
         props=[
@@ -259,6 +311,12 @@ def _build_fallback_scene() -> ScenePlan:
                     "A voice crackles: 'Eagle, you are GO for powered descent.' "
                     "Every engineer in the room holds their breath."
                 ),
+                material_type=MaterialType.metal,
+                scale=(5.0, 2.25, 2.0),
+                rotation_y=0.0,
+                emissive=True,
+                emissive_color="#44ff88",
+                emissive_intensity=0.6,
             ),
             Prop(
                 id="headset_rack",
@@ -266,6 +324,9 @@ def _build_fallback_scene() -> ScenePlan:
                 dimensions=[0.4, 0.3, 0.2],
                 position=Position3D(x=3.0, y=0.9, z=-2.5),
                 material=Material(color="#222222", roughness=0.6),
+                material_type=MaterialType.metal,
+                scale=(1.0, 0.75, 0.5),
+                rotation_y=15.0,
             ),
             Prop(
                 id="coffee_cup",
@@ -273,6 +334,9 @@ def _build_fallback_scene() -> ScenePlan:
                 dimensions=[0.05, 0.05, 0.1],
                 position=Position3D(x=0.8, y=0.95, z=-2.8),
                 material=Material(color="#8b4513", roughness=0.9),
+                material_type=MaterialType.ceramic,
+                scale=(0.125, 0.25, 0.125),
+                rotation_y=0.0,
             ),
         ],
         characters=[
@@ -294,6 +358,9 @@ def _build_fallback_scene() -> ScenePlan:
                 ),
                 interact_text="Speak with Flight Director",
                 primary=True,
+                rotation_y=180.0,
+                animation_hint=AnimationHint.talking_gesture,
+                archetype=CharacterArchetype.formal_male,
             ),
             Character(
                 id="capcom_duke",
@@ -312,6 +379,9 @@ def _build_fallback_scene() -> ScenePlan:
                 ),
                 interact_text="Ask CAPCOM for status",
                 primary=False,
+                rotation_y=225.0,
+                animation_hint=AnimationHint.working_console,
+                archetype=CharacterArchetype.scientist,
             ),
         ],
         ambient_sounds=[SoundID.console_beeps, SoundID.radio_chatter],
@@ -320,6 +390,7 @@ def _build_fallback_scene() -> ScenePlan:
             "In this room, quiet engineers hold the fate of three astronauts in their hands."
         ),
         camera_start=CameraStart(x=0.0, y=1.6, z=2.0),
+        skybox_hint=SkyboxHint.none,
     )
 
 

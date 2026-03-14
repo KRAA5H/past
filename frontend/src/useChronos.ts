@@ -59,6 +59,12 @@ export interface ScenePlanRoom {
   height: number
   fog: ScenePlanFog
   ambient_color: string
+  architecture_style?: string
+  time_of_day?: string
+  atmosphere?: string
+  ceiling_material?: string
+  has_windows?: boolean
+  ambient_light_color?: string
 }
 
 export interface ScenePlanLight {
@@ -66,6 +72,9 @@ export interface ScenePlanLight {
   position: Vec3Input
   color: string
   intensity: number
+  decay?: number
+  cast_shadow?: boolean
+  source_label?: string
 }
 
 export interface ScenePlanMaterial {
@@ -81,6 +90,12 @@ export interface ScenePlanProp {
   position: Vec3Input
   material: ScenePlanMaterial
   interactable: boolean
+  material_type?: string
+  scale?: [number, number, number]
+  rotation_y?: number
+  emissive?: boolean
+  emissive_color?: string
+  emissive_intensity?: number
 }
 
 export interface ScenePlanCharacter {
@@ -90,6 +105,9 @@ export interface ScenePlanCharacter {
   position: Vec3Input
   primary: boolean
   persona_summary: string
+  rotation_y?: number
+  animation_hint?: string
+  archetype?: string
 }
 
 export interface ScenePlan {
@@ -103,6 +121,7 @@ export interface ScenePlan {
   ambient_sounds: string[]
   intro_narration: string
   camera_start: Vec3Input
+  skybox_hint?: string
 }
 
 type WSMessageType =
