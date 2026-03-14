@@ -205,6 +205,41 @@ class TestRoom:
                 ambient_color="#000000",
             )
 
+    def test_room_new_field_defaults(self):
+        from models import ArchitectureStyle, Atmosphere, Fog, Room, TimeOfDay
+
+        r = Room(
+            width=15.0, depth=10.0, height=4.0,
+            fog=Fog(color="#000000", near=5.0, far=20.0),
+            ambient_color="#1a1a3e",
+        )
+        assert r.architecture_style == ArchitectureStyle.contemporary
+        assert r.time_of_day == TimeOfDay.unknown
+        assert r.atmosphere == Atmosphere.mundane
+        assert r.ceiling_material == "plaster"
+        assert r.has_windows is False
+        assert r.ambient_light_color == "#ffffff"
+
+    def test_room_new_fields_custom(self):
+        from models import ArchitectureStyle, Atmosphere, Fog, Room, TimeOfDay
+
+        r = Room(
+            width=15.0, depth=10.0, height=4.0,
+            fog=Fog(color="#0a0a14", near=8.0, far=20.0),
+            ambient_color="#1a1a3e",
+            architecture_style=ArchitectureStyle.space_age,
+            time_of_day=TimeOfDay.afternoon,
+            atmosphere=Atmosphere.tense,
+            ceiling_material="acoustic_tile",
+            has_windows=False,
+            ambient_light_color="#cce0ff",
+        )
+        assert r.architecture_style == ArchitectureStyle.space_age
+        assert r.time_of_day == TimeOfDay.afternoon
+        assert r.atmosphere == Atmosphere.tense
+        assert r.ceiling_material == "acoustic_tile"
+        assert r.ambient_light_color == "#cce0ff"
+
 
 # ---------------------------------------------------------------------------
 # Prop
@@ -294,6 +329,44 @@ class TestProp:
                 interact_content=long_content,
             )
 
+    def test_prop_new_field_defaults(self):
+        from models import MaterialType, Position3D, Prop, ShapeType
+
+        p = Prop(
+            id="box1",
+            shape=ShapeType.box,
+            dimensions=[1.0, 1.0, 1.0],
+            position=Position3D(x=0.0, y=0.0, z=0.0),
+        )
+        assert p.material_type == MaterialType.wood
+        assert p.scale == (1.0, 1.0, 1.0)
+        assert p.rotation_y == 0.0
+        assert p.emissive is False
+        assert p.emissive_color == "#ffffff"
+        assert p.emissive_intensity == 1.0
+
+    def test_prop_new_fields_custom(self):
+        from models import MaterialType, Position3D, Prop, ShapeType
+
+        p = Prop(
+            id="lamp1",
+            shape=ShapeType.cylinder,
+            dimensions=[0.1, 0.3, 0.1],
+            position=Position3D(x=1.0, y=1.0, z=0.0),
+            material_type=MaterialType.metal,
+            scale=(1.0, 2.0, 1.0),
+            rotation_y=90.0,
+            emissive=True,
+            emissive_color="#ff8c00",
+            emissive_intensity=0.8,
+        )
+        assert p.material_type == MaterialType.metal
+        assert p.scale == (1.0, 2.0, 1.0)
+        assert p.rotation_y == 90.0
+        assert p.emissive is True
+        assert p.emissive_color == "#ff8c00"
+        assert p.emissive_intensity == 0.8
+
 
 # ---------------------------------------------------------------------------
 # Character
@@ -346,6 +419,43 @@ class TestCharacter:
                 primary=True,
             )
 
+    def test_character_new_field_defaults(self):
+        from models import AnimationHint, Character, CharacterArchetype, Position3D
+
+        c = Character(
+            id="c1",
+            name="Caesar",
+            role="Leader.",
+            position=Position3D(x=0.0, y=0.0, z=0.0),
+            head_portrait_prompt="Portrait white background.",
+            persona_summary="You are Caesar.",
+            interact_text="Talk",
+            primary=True,
+        )
+        assert c.rotation_y == 0.0
+        assert c.animation_hint == AnimationHint.idle_standing
+        assert c.archetype == CharacterArchetype.formal_male
+
+    def test_character_new_fields_custom(self):
+        from models import AnimationHint, Character, CharacterArchetype, Position3D
+
+        c = Character(
+            id="c1",
+            name="Charlie Duke",
+            role="CAPCOM.",
+            position=Position3D(x=3.0, y=0.0, z=-1.5),
+            head_portrait_prompt="Portrait white background.",
+            persona_summary="You are Charlie Duke.",
+            interact_text="Talk",
+            primary=True,
+            rotation_y=225.0,
+            animation_hint=AnimationHint.working_console,
+            archetype=CharacterArchetype.scientist,
+        )
+        assert c.rotation_y == 225.0
+        assert c.animation_hint == AnimationHint.working_console
+        assert c.archetype == CharacterArchetype.scientist
+
 
 # ---------------------------------------------------------------------------
 # Light
@@ -396,6 +506,35 @@ class TestLight:
                 color="#ffffff",
                 intensity=1.0,
             )
+
+    def test_light_new_field_defaults(self):
+        from models import Light, LightType, Position3D
+
+        l = Light(
+            type=LightType.point,
+            position=Position3D(x=0.0, y=3.0, z=0.0),
+            color="#ffffff",
+            intensity=1.0,
+        )
+        assert l.decay == 2.0
+        assert l.cast_shadow is True
+        assert l.source_label == ""
+
+    def test_light_new_fields_custom(self):
+        from models import Light, LightType, Position3D
+
+        l = Light(
+            type=LightType.point,
+            position=Position3D(x=0.0, y=3.0, z=0.0),
+            color="#4080ff",
+            intensity=1.2,
+            decay=1.5,
+            cast_shadow=False,
+            source_label="monitor glow",
+        )
+        assert l.decay == 1.5
+        assert l.cast_shadow is False
+        assert l.source_label == "monitor glow"
 
 
 # ---------------------------------------------------------------------------
@@ -561,6 +700,19 @@ class TestScenePlan:
 
         errors = ScenePlan.validate_data(_valid_scene_dict())
         assert errors == []
+
+    def test_skybox_hint_default(self):
+        from models import ScenePlan, SkyboxHint
+
+        plan = ScenePlan.model_validate(_valid_scene_dict())
+        assert plan.skybox_hint == SkyboxHint.none
+
+    def test_skybox_hint_custom(self):
+        from models import ScenePlan, SkyboxHint
+
+        d = _valid_scene_dict(skybox_hint="night_stars")
+        plan = ScenePlan.model_validate(d)
+        assert plan.skybox_hint == SkyboxHint.night_stars
 
 
 # ---------------------------------------------------------------------------
