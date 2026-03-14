@@ -58,6 +58,7 @@ export default function App() {
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
       {/* 3-D canvas */}
       <Canvas
+        shadows="soft"
         camera={{ position: [0, 2, 8], fov: 60 }}
         style={{ position: 'absolute', inset: 0 }}
       >
