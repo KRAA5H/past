@@ -2,10 +2,12 @@
 main.py — FastAPI application entry point.
 
 Routes:
-  GET  /health          — health check
-  POST /api/scene       — generate a scene from a text prompt
-  GET  /api/scene/{id}  — retrieve a stored scene
-  WS   /ws/{session_id} — bidirectional audio/text WebSocket
+  GET  /health             — health check
+  POST /api/scene          — generate a scene (legacy SceneState, function-calling)
+  POST /api/scene/plan     — generate a validated ScenePlan (JSON mode, with retry)
+  GET  /api/scene/{id}     — retrieve a stored scene
+  GET  /api/scene/plan/{id}— retrieve a stored ScenePlan
+  WS   /ws/{session_id}    — bidirectional audio/text WebSocket
 """
 from __future__ import annotations
 
@@ -28,6 +30,7 @@ load_dotenv()
 from gemini_live import GeminiLiveSession
 from models import (
     NPC,
+    ScenePlan,
     SceneState,
     WSMessage,
     WSMessageType,
@@ -45,6 +48,7 @@ FRONTEND_ORIGIN = os.environ.get("FRONTEND_ORIGIN", "http://localhost:5173")
 # In-memory store for active WebSocket ↔ Live sessions
 _live_sessions: dict[str, GeminiLiveSession] = {}
 _scene_states: dict[str, SceneState] = {}
+_scene_plans: dict[str, ScenePlan] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -122,6 +126,36 @@ async def get_scene(session_id: str):
     if not state:
         raise HTTPException(status_code=404, detail="Scene not found")
     return state
+
+
+@app.post("/api/scene/plan", response_model=ScenePlan)
+async def create_scene_plan(req: SceneRequest):
+    """
+    Generate a validated ScenePlan using JSON mode with automatic retry and
+    an Apollo 11 fallback if Gemini fails twice.
+    """
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
+
+    planner = ScenePlanner(api_key=GEMINI_API_KEY)
+    try:
+        plan = planner.generate_scene_plan(req.prompt)
+    except Exception as exc:
+        logger.error("Scene plan generation error: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Gemini error: {exc}") from exc
+
+    # Use the plan's own scene_id as the storage key so GET and POST agree on the ID.
+    _scene_plans[plan.scene_id] = plan
+    return plan
+
+
+@app.get("/api/scene/plan/{plan_id}", response_model=ScenePlan)
+async def get_scene_plan(plan_id: str):
+    """Return a previously generated ScenePlan by its scene_id."""
+    plan = _scene_plans.get(plan_id)
+    if not plan:
+        raise HTTPException(status_code=404, detail="ScenePlan not found")
+    return plan
 
 
 # ---------------------------------------------------------------------------
