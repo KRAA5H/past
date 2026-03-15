@@ -389,7 +389,7 @@ function PlanLight({ light }: { light: ScenePlanLight }) {
 // ScenePlan — Prop (with optional glTF model)
 // ---------------------------------------------------------------------------
 
-function GLTFPropModel({ url, meshScale }: { url: string; meshScale: number }) {
+function GLTFPropModel({ url }: { url: string }) {
   const { scene } = useGLTF(url)
   const cloned = useMemo(() => {
     const clone = scene.clone(true)
@@ -401,7 +401,9 @@ function GLTFPropModel({ url, meshScale }: { url: string; meshScale: number }) {
     })
     return clone
   }, [scene])
-  return <primitive object={cloned} scale={meshScale * GLB_TO_SCENE_SCALE} />
+  // GLB_TO_SCENE_SCALE converts from typical cm-authored assets to metres.
+  // Per-prop sizing is handled by the parent group's scale (from prop.scale).
+  return <primitive object={cloned} scale={GLB_TO_SCENE_SCALE} />
 }
 
 function PlanProp({ prop }: { prop: ScenePlanProp }) {
@@ -460,7 +462,7 @@ function PlanProp({ prop }: { prop: ScenePlanProp }) {
       {gltfUrl ? (
         <ModelErrorBoundary fallback={primitiveFallback}>
           <Suspense fallback={primitiveFallback}>
-            <GLTFPropModel url={gltfUrl} meshScale={Math.max(w, h, d)} />
+            <GLTFPropModel url={gltfUrl} />
           </Suspense>
         </ModelErrorBoundary>
       ) : (

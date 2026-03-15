@@ -69,7 +69,7 @@
       "notes": "Outdoor garden table. Works well with outdoor or courtyard scenes. Material type: wood or metal depending on variant."
     },
     {
-      "slug": "human_models_set_-_malefemale_rigged",
+      "slug": "human_models_set_malefemale_rigged",
       "name": "Human Models Set (Male/Female Rigged)",
       "category": "character",
       "file_path": "/assets/scenes/human_models_set_-_malefemale_rigged/scene.glb",
@@ -80,7 +80,7 @@
       "notes": "Rigged human models for character animation. Can supplement the archetype-based character system. Verify skeleton compatibility with existing animation_hint system."
     },
     {
-      "slug": "knight_-_includes_file_for_3d_printing",
+      "slug": "knight_includes_file_for_3d_printing",
       "name": "Knight (3D Print Model)",
       "category": "prop",
       "file_path": "/assets/scenes/knight_-_includes_file_for_3d_printing/scene.glb",
@@ -157,7 +157,7 @@
       "notes": "Stylized (non-photorealistic) castle room. Art style may clash with PBR materials on other props — consider adjusting envMapIntensity or using a custom shader."
     },
     {
-      "slug": "table_and_chairs_-_low_poly",
+      "slug": "table_and_chairs_low_poly",
       "name": "Table and Chairs (Low Poly)",
       "category": "prop",
       "file_path": "/assets/scenes/table_and_chairs_-_low_poly/scene.glb",
