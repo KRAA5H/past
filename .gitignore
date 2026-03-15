@@ -39,3 +39,18 @@ Thumbs.db
 .pytest_cache/
 htmlcov/
 .coverage
+
+# Assets
+.exr
+.glb
+
+backend/assets/canary_wharf_4k.exr
+backend/assets/Cowboy.glb
+backend/assets/Cowgirl.glb
+backend/assets/dikhololo_night_4k.exr
+backend/assets/Female Fighter.glb
+backend/assets/kiara_1_dawn_4k.exr
+backend/assets/Male Fighter.glb
+backend/assets/Warrior-RaWl2GJ0NZ.glb
+backend/assets/Warrior-Z6ZUtm6kc1.glb
+backend/assets/Warrior.glb
