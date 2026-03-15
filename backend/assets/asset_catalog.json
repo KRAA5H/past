@@ -1,0 +1,171 @@
+{
+  "version": "1.0.0",
+  "description": "Registry of glTF scene and prop assets available for Chronos 3-D historical scenes.",
+  "assets": [
+    {
+      "slug": "abandoned_mansion_bedroom",
+      "name": "Abandoned Mansion Bedroom",
+      "category": "environment",
+      "file_path": "/assets/scenes/abandoned_mansion_bedroom/scene.glb",
+      "recommended_scale": 1.0,
+      "position_y_offset": 0.0,
+      "tags": ["indoor", "victorian", "abandoned", "bedroom"],
+      "suitable_architecture_styles": ["victorian", "colonial_american"],
+      "notes": "Dilapidated bedroom with peeling wallpaper, broken furniture, and dusty atmosphere. Suitable for mystery or horror-themed historical vignettes."
+    },
+    {
+      "slug": "armor_set",
+      "name": "Armor Set",
+      "category": "prop",
+      "file_path": "/assets/scenes/armor_set/scene.glb",
+      "recommended_scale": 1.0,
+      "position_y_offset": 0.0,
+      "tags": ["medieval", "armor", "decoration", "metal"],
+      "suitable_architecture_styles": ["medieval_european"],
+      "notes": "Standing suit of plate armor. Place on a ground plane or pedestal prop. Material type: metal."
+    },
+    {
+      "slug": "british_pub",
+      "name": "British Pub",
+      "category": "environment",
+      "file_path": "/assets/scenes/british_pub/scene.glb",
+      "recommended_scale": 1.0,
+      "position_y_offset": 0.0,
+      "tags": ["indoor", "victorian", "social", "pub"],
+      "suitable_architecture_styles": ["victorian", "colonial_american"],
+      "notes": "Full pub interior with bar counter, stools, shelving with bottles. Good for Victorian-era or early 20th-century social scenes."
+    },
+    {
+      "slug": "furniture_a_models_from_fps_creator_classic",
+      "name": "Furniture Pack (FPS Creator Classic)",
+      "category": "prop_pack",
+      "file_path": "/assets/scenes/furniture_a_models_from_fps_creator_classic/scene.glb",
+      "recommended_scale": 0.8,
+      "position_y_offset": 0.0,
+      "tags": ["indoor", "furniture", "generic", "table", "chair", "cabinet"],
+      "suitable_architecture_styles": ["victorian", "colonial_american", "mid_century_modern", "contemporary"],
+      "notes": "Generic furniture collection. Contains tables, chairs, cabinets, and shelves. May need to be split into individual props for scene placement."
+    },
+    {
+      "slug": "gameready_colt_python_revolver",
+      "name": "Game-Ready Colt Python Revolver",
+      "category": "prop",
+      "file_path": "/assets/scenes/gameready_colt_python_revolver/scene.glb",
+      "recommended_scale": 1.0,
+      "position_y_offset": 0.0,
+      "tags": ["weapon", "revolver", "metal", "modern"],
+      "suitable_architecture_styles": ["mid_century_modern", "contemporary"],
+      "notes": "Detailed revolver model. Place on a table surface or in a character's hand position. Material type: metal. Unsuitable for pre-1955 scenes."
+    },
+    {
+      "slug": "garden_table",
+      "name": "Garden Table",
+      "category": "prop",
+      "file_path": "/assets/scenes/garden_table/scene.glb",
+      "recommended_scale": 1.0,
+      "position_y_offset": 0.0,
+      "tags": ["outdoor", "furniture", "garden", "table"],
+      "suitable_architecture_styles": ["victorian", "colonial_american", "contemporary"],
+      "notes": "Outdoor garden table. Works well with outdoor or courtyard scenes. Material type: wood or metal depending on variant."
+    },
+    {
+      "slug": "human_models_set_malefemale_rigged",
+      "name": "Human Models Set (Male/Female Rigged)",
+      "category": "character",
+      "file_path": "/assets/scenes/human_models_set_-_malefemale_rigged/scene.glb",
+      "recommended_scale": 1.0,
+      "position_y_offset": 0.0,
+      "tags": ["character", "rigged", "male", "female", "human"],
+      "suitable_architecture_styles": [],
+      "notes": "Rigged human models for character animation. Can supplement the archetype-based character system. Verify skeleton compatibility with existing animation_hint system."
+    },
+    {
+      "slug": "knight_includes_file_for_3d_printing",
+      "name": "Knight (3D Print Model)",
+      "category": "prop",
+      "file_path": "/assets/scenes/knight_-_includes_file_for_3d_printing/scene.glb",
+      "recommended_scale": 1.0,
+      "position_y_offset": 0.0,
+      "tags": ["medieval", "knight", "character", "decoration"],
+      "suitable_architecture_styles": ["medieval_european"],
+      "notes": "Detailed knight figure. Can serve as a decorative prop or static NPC stand-in. Material type: metal. Check polygon count — 3D print models may be very high-poly and need decimation."
+    },
+    {
+      "slug": "medieval_tavern",
+      "name": "Medieval Tavern",
+      "category": "environment",
+      "file_path": "/assets/scenes/medieval_tavern/scene.glb",
+      "recommended_scale": 1.0,
+      "position_y_offset": 0.0,
+      "tags": ["indoor", "medieval", "tavern", "social"],
+      "suitable_architecture_styles": ["medieval_european"],
+      "notes": "Full tavern interior with wooden beams, tables, benches, and a bar area. Ideal for medieval-era scenes involving social gatherings or clandestine meetings."
+    },
+    {
+      "slug": "old_bar",
+      "name": "Old Bar",
+      "category": "environment",
+      "file_path": "/assets/scenes/old_bar/scene.glb",
+      "recommended_scale": 1.0,
+      "position_y_offset": 0.0,
+      "tags": ["indoor", "bar", "vintage", "social"],
+      "suitable_architecture_styles": ["victorian", "colonial_american", "mid_century_modern"],
+      "notes": "Vintage bar interior with counter, stools, and shelving. Covers a broader time range than the British Pub. Good for prohibition-era or early 20th-century scenes."
+    },
+    {
+      "slug": "old_town",
+      "name": "Old Town",
+      "category": "environment",
+      "file_path": "/assets/scenes/old_town/scene.glb",
+      "recommended_scale": 1.0,
+      "position_y_offset": 0.0,
+      "tags": ["outdoor", "medieval", "town", "street"],
+      "suitable_architecture_styles": ["medieval_european", "victorian"],
+      "notes": "Outdoor town street scene with buildings, cobblestones, and market-area structures. Large asset — may need clipping or selective loading for bounded-room constraint."
+    },
+    {
+      "slug": "restaurant_in_the_evening",
+      "name": "Restaurant in the Evening",
+      "category": "environment",
+      "file_path": "/assets/scenes/restaurant_in_the_evening/scene.glb",
+      "recommended_scale": 1.0,
+      "position_y_offset": 0.0,
+      "tags": ["indoor", "restaurant", "evening", "social", "modern"],
+      "suitable_architecture_styles": ["mid_century_modern", "contemporary"],
+      "notes": "Evening-lit restaurant interior with tables, chairs, and warm lighting baked into textures. Pre-baked lighting may conflict with dynamic scene lights — adjust envMapIntensity."
+    },
+    {
+      "slug": "ruins_of_hore_abbey",
+      "name": "Ruins of Hore Abbey",
+      "category": "environment",
+      "file_path": "/assets/scenes/ruins_of_hore_abbey/scene.glb",
+      "recommended_scale": 1.0,
+      "position_y_offset": 0.0,
+      "tags": ["outdoor", "ruins", "medieval", "abbey", "stone"],
+      "suitable_architecture_styles": ["medieval_european"],
+      "notes": "Open-air abbey ruins with crumbling stone walls and arches. Ideal for medieval ecclesiastical scenes. Large-scale outdoor asset — may exceed the 20 m room bounds."
+    },
+    {
+      "slug": "stylized_medieval_castle_room",
+      "name": "Stylized Medieval Castle Room",
+      "category": "environment",
+      "file_path": "/assets/scenes/stylized_medieval_castle_room/scene.glb",
+      "recommended_scale": 1.0,
+      "position_y_offset": 0.0,
+      "tags": ["indoor", "medieval", "castle", "stylized"],
+      "suitable_architecture_styles": ["medieval_european"],
+      "notes": "Stylized (non-photorealistic) castle room. Art style may clash with PBR materials on other props — consider adjusting envMapIntensity or using a custom shader."
+    },
+    {
+      "slug": "table_and_chairs_low_poly",
+      "name": "Table and Chairs (Low Poly)",
+      "category": "prop",
+      "file_path": "/assets/scenes/table_and_chairs_-_low_poly/scene.glb",
+      "recommended_scale": 1.0,
+      "position_y_offset": 0.0,
+      "tags": ["indoor", "furniture", "table", "chair", "low_poly"],
+      "suitable_architecture_styles": ["medieval_european", "victorian", "colonial_american", "contemporary"],
+      "notes": "Low-poly table and chairs set. Excellent performance profile. Good general-purpose furniture for any indoor scene. Material type: wood."
+    }
+  ]
+}

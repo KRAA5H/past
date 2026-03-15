@@ -90,6 +90,28 @@ const SKYBOX_EXR_MAP: Record<string, string> = {
 const DEFAULT_EXR = '/assets/canary_wharf_4k.exr'
 
 // ---------------------------------------------------------------------------
+// Scene / prop asset slug → GLB path mapping
+// ---------------------------------------------------------------------------
+
+const SCENE_ASSET_MAP: Record<string, string> = {
+  abandoned_mansion_bedroom: '/assets/scenes/abandoned_mansion_bedroom/scene.glb',
+  armor_set: '/assets/scenes/armor_set/scene.glb',
+  british_pub: '/assets/scenes/british_pub/scene.glb',
+  furniture_a_models_from_fps_creator_classic: '/assets/scenes/furniture_a_models_from_fps_creator_classic/scene.glb',
+  gameready_colt_python_revolver: '/assets/scenes/gameready_colt_python_revolver/scene.glb',
+  garden_table: '/assets/scenes/garden_table/scene.glb',
+  human_models_set_malefemale_rigged: '/assets/scenes/human_models_set_-_malefemale_rigged/scene.glb',
+  knight_includes_file_for_3d_printing: '/assets/scenes/knight_-_includes_file_for_3d_printing/scene.glb',
+  medieval_tavern: '/assets/scenes/medieval_tavern/scene.glb',
+  old_bar: '/assets/scenes/old_bar/scene.glb',
+  old_town: '/assets/scenes/old_town/scene.glb',
+  restaurant_in_the_evening: '/assets/scenes/restaurant_in_the_evening/scene.glb',
+  ruins_of_hore_abbey: '/assets/scenes/ruins_of_hore_abbey/scene.glb',
+  stylized_medieval_castle_room: '/assets/scenes/stylized_medieval_castle_room/scene.glb',
+  table_and_chairs_low_poly: '/assets/scenes/table_and_chairs_-_low_poly/scene.glb',
+}
+
+// ---------------------------------------------------------------------------
 // Material property lookup by material_type
 // ---------------------------------------------------------------------------
 
@@ -364,8 +386,25 @@ function PlanLight({ light }: { light: ScenePlanLight }) {
 }
 
 // ---------------------------------------------------------------------------
-// ScenePlan — Prop
+// ScenePlan — Prop (with optional glTF model)
 // ---------------------------------------------------------------------------
+
+function GLTFPropModel({ url }: { url: string }) {
+  const { scene } = useGLTF(url)
+  const cloned = useMemo(() => {
+    const clone = scene.clone(true)
+    clone.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        child.castShadow = true
+        child.receiveShadow = true
+      }
+    })
+    return clone
+  }, [scene])
+  // GLB_TO_SCENE_SCALE converts from typical cm-authored assets to metres.
+  // Per-prop sizing is handled by the parent group's scale (from prop.scale).
+  return <primitive object={cloned} scale={GLB_TO_SCENE_SCALE} />
+}
 
 function PlanProp({ prop }: { prop: ScenePlanProp }) {
   const pos = toTuple3(prop.position)
@@ -385,6 +424,10 @@ function PlanProp({ prop }: { prop: ScenePlanProp }) {
   const propScale = prop.scale ?? [1, 1, 1]
   const rotationY = degToRad(prop.rotation_y ?? 0)
 
+  // Resolve optional glTF asset
+  const gltfSlug = prop.gltf_asset ?? null
+  const gltfUrl = gltfSlug ? SCENE_ASSET_MAP[gltfSlug] ?? null : null
+
   let geometry: React.ReactNode
   switch (prop.shape) {
     case 'sphere':
@@ -397,21 +440,34 @@ function PlanProp({ prop }: { prop: ScenePlanProp }) {
       geometry = <boxGeometry args={[w, h, d]} />
   }
 
+  // Primitive fallback mesh — always available as a safety net
+  const primitiveFallback = (
+    <mesh castShadow receiveShadow>
+      {geometry}
+      <meshPhysicalMaterial
+        color={matColor}
+        roughness={physicalProps.roughness}
+        metalness={physicalProps.metalness}
+        clearcoat={physicalProps.clearcoat}
+        sheen={physicalProps.sheen}
+        transmission={physicalProps.transmission}
+        emissive={emissiveColor}
+        emissiveIntensity={emissiveIntensity}
+      />
+    </mesh>
+  )
+
   return (
     <group position={pos} rotation={[0, rotationY, 0]} scale={propScale as [number, number, number]}>
-      <mesh castShadow receiveShadow>
-        {geometry}
-        <meshPhysicalMaterial
-          color={matColor}
-          roughness={physicalProps.roughness}
-          metalness={physicalProps.metalness}
-          clearcoat={physicalProps.clearcoat}
-          sheen={physicalProps.sheen}
-          transmission={physicalProps.transmission}
-          emissive={emissiveColor}
-          emissiveIntensity={emissiveIntensity}
-        />
-      </mesh>
+      {gltfUrl ? (
+        <ModelErrorBoundary fallback={primitiveFallback}>
+          <Suspense fallback={primitiveFallback}>
+            <GLTFPropModel url={gltfUrl} />
+          </Suspense>
+        </ModelErrorBoundary>
+      ) : (
+        primitiveFallback
+      )}
       <Html position={[0, h / 2 + 0.3, 0]} center distanceFactor={8}>
         <div
           style={{
