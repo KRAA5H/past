@@ -383,6 +383,14 @@ class Prop(BaseModel):
         default=1.0,
         description="Emissive intensity",
     )
+    gltf_asset: Optional[str] = Field(
+        default=None,
+        description=(
+            "Asset catalog slug for a glTF model. When set, the frontend "
+            "loads the .glb file instead of rendering the primitive shape. "
+            "The primitive shape is kept as a fallback."
+        ),
+    )
 
     @model_validator(mode="after")
     def check_interactable_fields(self) -> "Prop":

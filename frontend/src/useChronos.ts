@@ -96,6 +96,7 @@ export interface ScenePlanProp {
   emissive?: boolean
   emissive_color?: string
   emissive_intensity?: number
+  gltf_asset?: string | null
 }
 
 export interface ScenePlanCharacter {
