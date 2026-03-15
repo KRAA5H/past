@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Canvas } from '@react-three/fiber'
+import * as THREE from 'three'
 import { Scene } from './Scene'
 import { useChronos } from './useChronos'
 import { AudioManager } from './AudioManager'
@@ -61,6 +62,11 @@ export default function App() {
         shadows="soft"
         camera={{ position: [0, 2, 8], fov: 60 }}
         style={{ position: 'absolute', inset: 0 }}
+        gl={{
+          antialias: true,
+          toneMapping: THREE.ACESFilmicToneMapping,
+          toneMappingExposure: 1.2,
+        }}
       >
         <Scene state={sceneState} scenePlan={scenePlan} />
       </Canvas>

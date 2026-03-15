@@ -1,12 +1,12 @@
 /**
  * Scene.tsx — Three.js / R3F room with dynamically placed NPCs and objects.
  *
- * NPCs are represented as simple capsule meshes until real GLTF assets are
- * available.  Objects are rendered as boxes with a label.
+ * Characters are rendered with GLTF models when available, falling back to
+ * capsule meshes.  Environment maps use custom EXR files for realistic IBL.
  *
  * When a ScenePlan is available, renders the structured scene instead.
  */
-import { useRef } from 'react'
+import { Suspense, useRef, useMemo, Component, type ReactNode } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import {
   ContactShadows,
@@ -15,6 +15,7 @@ import {
   Sky,
   Text,
   Html,
+  useGLTF,
 } from '@react-three/drei'
 import {
   EffectComposer,
@@ -26,6 +27,65 @@ import {
 import * as THREE from 'three'
 import type { SceneState, NPCBase, SceneObjectBase, ScenePlan, ScenePlanLight, ScenePlanProp, ScenePlanCharacter } from './useChronos'
 import { toTuple3 } from './useChronos'
+
+// ---------------------------------------------------------------------------
+// Error boundary — renders fallback children when a subtree throws (e.g.
+// missing GLTF asset triggers a network error inside useGLTF).
+// ---------------------------------------------------------------------------
+
+interface ErrorBoundaryProps {
+  fallback: ReactNode
+  children: ReactNode
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean
+}
+
+class ModelErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props)
+    this.state = { hasError: false }
+  }
+
+  static getDerivedStateFromError(): ErrorBoundaryState {
+    return { hasError: true }
+  }
+
+  render() {
+    if (this.state.hasError) return this.props.fallback
+    return this.props.children
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Character archetype → GLB model path mapping
+// ---------------------------------------------------------------------------
+
+const ARCHETYPE_MODEL_MAP: Record<string, string> = {
+  formal_male: '/models/cowboy.glb',
+  formal_female: '/models/cowgirl.glb',
+  military_male: '/models/fighter_male.glb',
+  military_female: '/models/fighter_female.glb',
+  laborer: '/models/warrior.glb',
+  scientist: '/models/cowboy.glb',
+  civilian: '/models/cowgirl.glb',
+}
+
+// ---------------------------------------------------------------------------
+// Skybox / time-of-day → EXR environment map path mapping
+// ---------------------------------------------------------------------------
+
+const SKYBOX_EXR_MAP: Record<string, string> = {
+  dawn: '/assets/kiara_1_dawn_4k.exr',
+  sunrise: '/assets/kiara_1_dawn_4k.exr',
+  night: '/assets/dikhololo_night_4k.exr',
+  night_stars: '/assets/dikhololo_night_4k.exr',
+  sunset: '/assets/canary_wharf_4k.exr',
+  dusk: '/assets/canary_wharf_4k.exr',
+}
+
+const DEFAULT_EXR = '/assets/canary_wharf_4k.exr'
 
 // ---------------------------------------------------------------------------
 // Material property lookup by material_type
@@ -83,6 +143,20 @@ function getEnvPreset(architectureStyle?: string, timeOfDay?: string): EnvPreset
     default:
       return 'city'
   }
+}
+
+// ---------------------------------------------------------------------------
+// Resolve the best EXR environment file for the scene, or null to use preset
+// ---------------------------------------------------------------------------
+
+function getEnvFile(timeOfDay?: string, skyboxHint?: string): string | null {
+  if (skyboxHint && skyboxHint !== 'none' && SKYBOX_EXR_MAP[skyboxHint]) {
+    return SKYBOX_EXR_MAP[skyboxHint]
+  }
+  if (timeOfDay && SKYBOX_EXR_MAP[timeOfDay]) {
+    return SKYBOX_EXR_MAP[timeOfDay]
+  }
+  return DEFAULT_EXR
 }
 
 function getSceneBackgroundColor(atmosphere?: string, timeOfDay?: string): string {
@@ -356,8 +430,38 @@ function PlanProp({ prop }: { prop: ScenePlanProp }) {
 }
 
 // ---------------------------------------------------------------------------
-// ScenePlan — Character
+// ScenePlan — Character with GLTF model loading
 // ---------------------------------------------------------------------------
+
+function GLTFCharacterModel({ url, meshScale }: { url: string; meshScale: number }) {
+  const { scene } = useGLTF(url)
+  const cloned = useMemo(() => {
+    const clone = scene.clone(true)
+    clone.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        child.castShadow = true
+        child.receiveShadow = true
+      }
+    })
+    return clone
+  }, [scene])
+  return <primitive object={cloned} scale={meshScale * 0.01} />
+}
+
+function CharacterCapsuleFallback({
+  meshScale,
+  color,
+}: {
+  meshScale: number
+  color: string
+}) {
+  return (
+    <mesh scale={[meshScale, meshScale, meshScale]} castShadow receiveShadow>
+      <capsuleGeometry args={[0.25, 0.8, 8, 16]} />
+      <meshPhysicalMaterial color={color} roughness={0.7} metalness={0.0} />
+    </mesh>
+  )
+}
 
 function PlanCharacter({ char }: { char: ScenePlanCharacter }) {
   const pos = toTuple3(char.position)
@@ -367,20 +471,32 @@ function PlanCharacter({ char }: { char: ScenePlanCharacter }) {
 
   const rotationY = degToRad(char.rotation_y ?? 0)
 
+  const archetype = char.archetype ?? 'formal_male'
+  const modelUrl = ARCHETYPE_MODEL_MAP[archetype]
+
+  const fallback = (
+    <CharacterCapsuleFallback meshScale={meshScale} color={color} />
+  )
+
   return (
     <group
       position={pos}
       rotation={[0, rotationY, 0]}
       userData={{
         animation_hint: char.animation_hint ?? 'idle_standing',
-        archetype: char.archetype ?? 'formal_male',
+        archetype,
       }}
     >
-      {/* Body */}
-      <mesh scale={[meshScale, meshScale, meshScale]} castShadow receiveShadow>
-        <capsuleGeometry args={[0.25, 0.8, 8, 16]} />
-        <meshPhysicalMaterial color={color} roughness={0.7} metalness={0.0} />
-      </mesh>
+      {/* Character model: try GLTF, fall back to capsule */}
+      {modelUrl ? (
+        <ModelErrorBoundary fallback={fallback}>
+          <Suspense fallback={fallback}>
+            <GLTFCharacterModel url={modelUrl} meshScale={meshScale} />
+          </Suspense>
+        </ModelErrorBoundary>
+      ) : (
+        fallback
+      )}
       {/* Name label */}
       <Text
         position={[0, meshScale * 0.7 + 0.3, 0]}
@@ -431,6 +547,29 @@ function CameraSetter({ position }: { position: [number, number, number] }) {
 }
 
 // ---------------------------------------------------------------------------
+// HDR Environment — tries EXR file, falls back to drei preset
+// ---------------------------------------------------------------------------
+
+function HDREnvironment({
+  envFile,
+  envPreset,
+}: {
+  envFile: string | null
+  envPreset: EnvPreset
+}) {
+  if (envFile) {
+    return (
+      <ModelErrorBoundary fallback={<Environment preset={envPreset} />}>
+        <Suspense fallback={<Environment preset={envPreset} />}>
+          <Environment files={envFile} />
+        </Suspense>
+      </ModelErrorBoundary>
+    )
+  }
+  return <Environment preset={envPreset} />
+}
+
+// ---------------------------------------------------------------------------
 // Main Scene
 // ---------------------------------------------------------------------------
 
@@ -450,6 +589,7 @@ export function Scene({ state, scenePlan }: SceneProps) {
     const skyboxHint = scenePlan.skybox_hint ?? 'none'
 
     const envPreset = getEnvPreset(architectureStyle, timeOfDay)
+    const envFile = getEnvFile(timeOfDay, skyboxHint)
     const bgColor = getSceneBackgroundColor(atmosphere, timeOfDay)
 
     // Determine if Sky should render
@@ -477,8 +617,8 @@ export function Scene({ state, scenePlan }: SceneProps) {
         {/* Fog */}
         <fog attach="fog" args={[fogColor, fogNear, fogFar]} />
 
-        {/* Image-based lighting */}
-        <Environment preset={envPreset} />
+        {/* Image-based lighting — prefer EXR, fall back to preset */}
+        <HDREnvironment envFile={envFile} envPreset={envPreset} />
 
         {/* Low ambient fill */}
         <ambientLight
@@ -486,13 +626,18 @@ export function Scene({ state, scenePlan }: SceneProps) {
           intensity={0.15}
         />
 
-        {/* Shadow-casting directional light */}
+        {/* Shadow-casting directional light with high-res shadow map */}
         <directionalLight
           position={[8, 12, 5]}
           intensity={0.5}
           castShadow
-          shadow-mapSize-width={1024}
-          shadow-mapSize-height={1024}
+          shadow-mapSize-width={2048}
+          shadow-mapSize-height={2048}
+          shadow-bias={-0.0001}
+          shadow-camera-left={-15}
+          shadow-camera-right={15}
+          shadow-camera-top={15}
+          shadow-camera-bottom={-15}
         />
 
         {/* Contact shadows on the ground */}
