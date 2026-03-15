@@ -62,6 +62,8 @@ class ModelErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryStat
 // Character archetype → GLB model path mapping
 // ---------------------------------------------------------------------------
 
+// Five distinct GLB models are available; archetypes without a unique model
+// share the closest visual match until dedicated assets are added.
 const ARCHETYPE_MODEL_MAP: Record<string, string> = {
   formal_male: '/models/cowboy.glb',
   formal_female: '/models/cowgirl.glb',
@@ -433,6 +435,10 @@ function PlanProp({ prop }: { prop: ScenePlanProp }) {
 // ScenePlan — Character with GLTF model loading
 // ---------------------------------------------------------------------------
 
+// GLB models are typically authored in centimetre scale; multiply by 0.01
+// to convert to the scene's metre-based coordinate system.
+const GLB_TO_SCENE_SCALE = 0.01
+
 function GLTFCharacterModel({ url, meshScale }: { url: string; meshScale: number }) {
   const { scene } = useGLTF(url)
   const cloned = useMemo(() => {
@@ -445,7 +451,7 @@ function GLTFCharacterModel({ url, meshScale }: { url: string; meshScale: number
     })
     return clone
   }, [scene])
-  return <primitive object={cloned} scale={meshScale * 0.01} />
+  return <primitive object={cloned} scale={meshScale * GLB_TO_SCENE_SCALE} />
 }
 
 function CharacterCapsuleFallback({
